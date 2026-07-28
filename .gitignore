@@ -1,0 +1,64 @@
+# Operating systems and editors
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json
+*.pfx
+*.p12
+*.pem
+*.key
+
+# .NET
+**/bin/
+**/obj/
+TestResults/
+coverage/
+coverage.*/
+*.coverage
+*.coveragexml
+artifacts/
+src/MotoCare.Api/data-protection-keys/
+
+# Node.js / Nuxt
+**/node_modules/
+.pnpm-store/
+**/.nuxt/
+**/.output/
+**/.nitro/
+**/.cache/
+**/dist/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Rust / Tauri
+**/target/
+src/MotoCare.FE/release/windows/
+src/MotoCare.FE/release/published/
+
+# Generated project artifacts
+deploy/.artifacts/
+output/

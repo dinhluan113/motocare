@@ -1,0 +1,12 @@
+{
+    "version":  "1.0.1",
+    "notes":  "Sửa API production cho ứng dụng Windows",
+    "updateBaseUrl":  "https://moto.luandinh.com/releases",
+    "updaterPublicKey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI2NjU5NEQ5OTJGNTFGN0MKUldSOEgvV1MyWlJsSmtpNzA1cWdETEhaMFMvOHdNazFwTGM0T3ZrRmFnRWFPMTY5SW5vNnp6SEEK",
+    "privateKeyPath":  "%LOCALAPPDATA%\\MotoCare\\updater.key",
+    "upload":  {
+                   "method":  "scp",
+                   "localDirectory":  "release\\published",
+                   "scpDestination":  "root@103.12.77.73:/home/MotoCare/windows-releases"
+               }
+}

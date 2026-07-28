@@ -1,0 +1,78 @@
+{
+    "$schema":  "../node_modules/@tauri-apps/cli/config.schema.json",
+    "productName":  "MotoCare",
+    "version":  "1.0.1",
+    "identifier":  "com.motocare.cms",
+    "build":  {
+                  "frontendDist":  "../.output/public",
+                  "devUrl":  "http://localhost:3000",
+                  "beforeDevCommand":  "pnpm dev",
+                  "beforeBuildCommand":  "pnpm generate"
+              },
+    "app":  {
+                "withGlobalTauri":  false,
+                "windows":  [
+                                {
+                                    "label":  "main",
+                                    "title":  "MotoCare CMS",
+                                    "width":  1600,
+                                    "height":  900,
+                                    "minWidth":  1100,
+                                    "minHeight":  700,
+                                    "resizable":  true,
+                                    "fullscreen":  false,
+                                    "maximized":  true,
+                                    "visible":  false
+                                },
+                                {
+                                    "label":  "splashscreen",
+                                    "title":  "MotoCare",
+                                    "url":  "splashscreen.html",
+                                    "width":  520,
+                                    "height":  320,
+                                    "resizable":  false,
+                                    "fullscreen":  false,
+                                    "decorations":  false,
+                                    "transparent":  true,
+                                    "alwaysOnTop":  true,
+                                    "center":  true
+                                }
+                            ],
+                "security":  {
+                                 "csp":  null
+                             }
+            },
+    "plugins":  {
+                    "updater":  {
+                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI2NjU5NEQ5OTJGNTFGN0MKUldSOEgvV1MyWlJsSmtpNzA1cWdETEhaMFMvOHdNazFwTGM0T3ZrRmFnRWFPMTY5SW5vNnp6SEEK",
+                                    "endpoints":  [
+                                                      "https://moto.luandinh.com/releases/latest.json"
+                                                  ],
+                                    "windows":  {
+                                                    "installMode":  "passive"
+                                                }
+                                }
+                },
+    "bundle":  {
+                   "active":  true,
+                   "targets":  [
+                                   "nsis"
+                               ],
+                   "createUpdaterArtifacts":  true,
+                   "icon":  [
+                                "../public/favicon.ico"
+                            ],
+                   "windows":  {
+                                   "webviewInstallMode":  {
+                                                              "type":  "downloadBootstrapper"
+                                                          },
+                                   "nsis":  {
+                                                "installMode":  "currentUser",
+                                                "languages":  [
+                                                                  "Vietnamese",
+                                                                  "English"
+                                                              ]
+                                            }
+                               }
+               }
+}

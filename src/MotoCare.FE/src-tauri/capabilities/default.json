@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Quyền mặc định cho các cửa sổ MotoCare",
+  "windows": ["main", "splashscreen"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,21 @@
+@host = http://localhost:5088
+@token = PASTE_JWT_HERE
+
+GET {{host}}/health
+
+###
+
+POST {{host}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "Admin@123456"
+}
+
+###
+
+GET {{host}}/api/v1/auth/me
+Authorization: Bearer {{token}}
+
+###

@@ -148,5 +148,6 @@ pnpm build
   [`deploy/production/README.md`](deploy/production/README.md).
 - Build và phát hành desktop Windows: xem
   [`src/MotoCare.FE/RELEASE_WINDOWS.md`](src/MotoCare.FE/RELEASE_WINDOWS.md).
+  .\build-release.bat 1.0.2 "Sửa API production cho ứng dụng Windows"
 - Mô tả kỹ thuật và nghiệp vụ chi tiết:
   [`docs/MO_TA_KY_THUAT_MOTOCARE.md`](docs/MO_TA_KY_THUAT_MOTOCARE.md).

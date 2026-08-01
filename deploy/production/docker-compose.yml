@@ -1,0 +1,34 @@
+services:
+  api:
+    image: motocare-api:local
+    container_name: motocare-api
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5112
+      DataProtection__KeysPath: /app/data-protection-keys
+    volumes:
+      - ./appsettings.Production.json:/app/appsettings.Production.json:ro
+      - ./uploads:/app/wwwroot/uploads
+      - ./data-protection-keys:/app/data-protection-keys
+    ports:
+      - "127.0.0.1:5112:5112"
+    networks:
+      - motocare
+
+  web:
+    image: motocare-web:local
+    container_name: motocare-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:5113:80"
+    networks:
+      - motocare
+
+networks:
+  motocare:
+    name: motocare

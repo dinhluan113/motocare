@@ -23,7 +23,7 @@ giao diện quản trị trên web và ứng dụng desktop Windows.
 | Frontend | Nuxt 4, Vue 3, TypeScript, pnpm |
 | Desktop | Tauri 2, Rust, NSIS |
 | Dữ liệu | MongoDB 7 replica set |
-| Triển khai | Nginx, systemd, PowerShell, Docker Compose |
+| Triển khai | Docker images, Docker Compose, Nginx, PowerShell |
 
 ## Cấu trúc dự án
 

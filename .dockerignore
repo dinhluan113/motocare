@@ -1,0 +1,14 @@
+.git
+.gitignore
+.pnpm-store
+deploy/.artifacts
+output
+tmp
+**/bin
+**/obj
+**/node_modules
+**/.nuxt
+**/.output
+**/target
+**/*.log
+src/MotoCare.Api/appsettings.Production.json

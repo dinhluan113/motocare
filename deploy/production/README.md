@@ -1,46 +1,122 @@
-# MotoCare production deployment
+# MotoCare production deployment (Docker Compose)
 
-Target:
+Production runs two containers only:
 
-- Web: `https://moto.luandinh.com`
-- API: `https://moto.luandinh.com/api/v1`
-- SignalR: `https://moto.luandinh.com/hubs/notifications`
-- VPS: `root@103.12.77.73`
-- API service: `motocare.service`, bound to `127.0.0.1:5112`
+- `motocare-api`: ASP.NET Core API, published on `127.0.0.1:5112` and on the
+  internal Compose network.
+- `motocare-web`: generated Nuxt site served on `127.0.0.1:5113` by its own
+  Nginx container.
 
-Deploy:
+The VPS's existing shared Nginx remains responsible for public ports 80/443
+and TLS. Its MotoCare virtual host proxies the frontend to port 5113 and the API,
+SignalR and uploaded files to port 5112. Other sites on the VPS are unaffected.
+
+MongoDB is not installed on the VPS. The API uses the MongoDB Cloud connection
+string in `appsettings.Production.json`.
+
+All runtime files live in `/home/MotoCare`:
+
+```text
+/home/MotoCare/
+├── docker-compose.yml
+├── appsettings.Production.json
+├── .env
+├── uploads/
+├── data-protection-keys/
+└── windows-releases/
+```
+
+No systemd service is created. Both application containers use
+`restart: unless-stopped`.
+
+## Requirements
+
+Local Windows computer:
+
+- Docker Desktop running Linux containers
+- OpenSSH (`ssh.exe` and `scp.exe`)
+- `tar.exe`
+
+VPS:
+
+- Docker Engine
+- Docker Compose plugin (`docker compose`)
+- host Nginx, `curl` and `openssl`
+- DNS A record for `moto.luandinh.com` pointing to the VPS when HTTPS is enabled
+
+The first Compose deployment disables only the old `motocare.service`. It
+updates and validates the MotoCare Nginx virtual host, then reloads shared Nginx.
+
+## Configuration
+
+Set the MongoDB Cloud connection string in
+`src/MotoCare.Api/appsettings.Production.json`, or keep a separate private file
+and pass it to the deployment script:
+
+```powershell
+.\deploy.ps1 -AppSettingsPath 'D:\secrets\motocare.appsettings.Production.json'
+```
+
+For an Atlas-style `mongodb+srv://` URI, do not append
+`directConnection=true`; SRV discovery and direct connection are incompatible.
+
+On the first deployment only, that file is copied to
+`/home/MotoCare/appsettings.Production.json`. Later deployments never overwrite
+the VPS copy, so production configuration is preserved.
+
+If `/home/MotoCare/.env` is missing, the installer creates it with:
+
+- a cryptographically random JWT signing key;
+- a random initial admin password;
+- the destructive demo-data feature disabled.
+
+The generated admin password is printed once at the end of the first successful
+deployment. Environment variables in `.env` override values in appsettings by
+using ASP.NET Core's double-underscore convention.
+
+## Deploy
+
+Build both Linux images locally, export them, upload them over SSH and start
+Compose on the VPS:
 
 ```powershell
 .\deploy.ps1
 ```
 
-or:
-
-```bat
-deploy-production.bat
-```
-
-After the DNS A record for `moto.luandinh.com` points to `103.12.77.73`, enable
-HTTPS:
+For the first HTTPS deployment, after DNS is ready:
 
 ```powershell
 .\deploy.ps1 -EnableHttps
 ```
 
-The deployment builds a self-contained Linux API, generates the Nuxt static
-site, uploads both archives, switches `/home/MotoCare/current` atomically and
-rolls back the symlink if the API health check fails.
+The installer reuses the existing host Let's Encrypt certificate when one
+exists. Otherwise `-EnableHttps` asks the host's Certbot installation to obtain
+one after the HTTP virtual host is active.
 
-## Internal demo-data tool
+Custom SSH key or VPS:
 
-The destructive demo-data tool is disabled by default in Production. During
-the internal demo phase, add the following line to
-`/home/MotoCare/shared/motocare.env`, then restart `motocare.service`:
-
-```dotenv
-DemoData__Enabled=true
+```powershell
+.\deploy.ps1 -VpsHost '203.0.113.10' -VpsUser root -SshKey "$env:USERPROFILE\.ssh\id_ed25519" -EnableHttps
 ```
 
-Before customer handover, remove that line or set it to `false` and restart the
-service. The **Settings** navigation item and the reset operation will then be
-unavailable; the API also rejects direct reset requests.
+## Operations on the VPS
+
+```bash
+cd /home/MotoCare
+docker compose ps
+docker compose logs -f --tail 100 api web
+docker compose restart api web
+```
+
+Certificate renewal remains managed by the host Certbot installation:
+
+```bash
+certbot renew
+```
+
+Back up at least these paths:
+
+- `/home/MotoCare/appsettings.Production.json`
+- `/home/MotoCare/.env`
+- `/home/MotoCare/uploads/`
+- the MongoDB Cloud database (using the provider's backup facilities)

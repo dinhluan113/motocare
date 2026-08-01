@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 using MotoCare.Api.Domain;
 using MotoCare.Api.Infrastructure;
+using MotoCare.Api.Services;
 
 namespace MotoCare.Api.Controllers;
 
@@ -18,22 +19,25 @@ public abstract class CrudController<T>(IMongoRepository<T> repository) : Contro
         [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] bool includeDeleted = false,
         CancellationToken cancellationToken = default)
     {
         var result = await Repository.GetPageAsync(
             BuildSearchFilter(search),
             page,
             pageSize,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken,
+            includeDeleted: includeDeleted);
         return Ok(ApiEnvelope.Ok(result));
     }
 
     [HttpGet("{id}")]
     public virtual async Task<IActionResult> GetById(
         string id,
+        [FromQuery] bool includeDeleted,
         CancellationToken cancellationToken)
     {
-        var entity = await Repository.GetByIdAsync(id, cancellationToken);
+        var entity = await Repository.GetByIdAsync(id, cancellationToken, includeDeleted);
         return entity is null
             ? NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy dữ liệu."))
             : Ok(ApiEnvelope.Ok(entity));
@@ -45,6 +49,9 @@ public abstract class CrudController<T>(IMongoRepository<T> repository) : Contro
         T entity,
         CancellationToken cancellationToken)
     {
+        await HttpContext.RequestServices
+            .GetRequiredService<AutoCodeService>()
+            .EnsureAsync(entity, cancellationToken);
         entity.Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
         entity.IsDeleted = false;
         Prepare(entity);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Crown, Plus, Star, UsersRound } from '@lucide/vue'
+import { Crown, Plus, Star, Trash2, UsersRound } from '@lucide/vue'
 import type { LoyaltyTier } from '~/types/api'
 import { formatCurrency, formatNumber } from '~/utils/format'
 
@@ -57,6 +57,18 @@ const saveRule = async () => {
     toast.success('Đã tạo quy tắc loyalty', ruleForm.name); ruleOpen.value = false; await load()
   } finally { saving.value = false }
 }
+const removeTier = async (tier: LoyaltyTier) => {
+  if (!confirm(`Xóa hạng thành viên ${tier.name}?`)) return
+  await api.request(`/loyalty/tiers/${tier.id}`, { method: 'DELETE' })
+  toast.success('Đã xóa hạng thành viên', tier.name)
+  await load()
+}
+const removeRule = async (rule: LoyaltyRule) => {
+  if (!confirm(`Xóa quy tắc ${rule.name}?`)) return
+  await api.request(`/loyalty/rules/${rule.id}`, { method: 'DELETE' })
+  toast.success('Đã xóa quy tắc loyalty', rule.name)
+  await load()
+}
 onMounted(load)
 </script>
 
@@ -64,15 +76,15 @@ onMounted(load)
   <div class="page">
     <div class="page-header"><div><h1 class="page-title">Khách hàng thân thiết</h1><p class="page-subtitle">Hạng thành viên, tích/đổi điểm và danh sách khách có giá trị cao.</p></div><div class="page-actions"><button class="btn btn-secondary" @click="ruleOpen = true"><Plus :size="16" /> Quy tắc điểm</button><button class="btn btn-accent" @click="tierOpen = true"><Plus :size="16" /> Hạng thành viên</button></div></div>
     <section class="tier-grid">
-      <article v-for="(tier, index) in tiers" :key="tier.id" class="tier-card" :class="`tier-${index % 3}`"><Crown :size="22" /><span>Cấp {{ tier.rank }}</span><strong>{{ tier.name }}</strong><small>Từ {{ formatCurrency(tier.minEligibleSpend) }} · x{{ tier.earnRate }} điểm</small><div>{{ tier.benefits.join(' · ') || 'Quyền lợi tiêu chuẩn' }}</div></article>
+      <article v-for="(tier, index) in tiers" :key="tier.id" class="tier-card" :class="`tier-${index % 3}`"><button class="icon-btn danger-button" title="Xóa hạng" @click="removeTier(tier)"><Trash2 :size="14" /></button><Crown :size="22" /><span>Cấp {{ tier.rank }}</span><strong>{{ tier.name }}</strong><small>Từ {{ formatCurrency(tier.minEligibleSpend) }} · x{{ tier.earnRate }} điểm</small><div>{{ tier.benefits.join(' · ') || 'Quyền lợi tiêu chuẩn' }}</div></article>
       <AppEmpty v-if="!tiers.length" :icon="Star" title="Chưa cấu hình hạng thành viên" message="Tạo hạng đầu tiên để tự động phân loại khách hàng." />
     </section>
     <section class="loyalty-grid">
       <article class="card"><header class="card-header"><h2 class="card-title">Khách hàng nổi bật</h2><UsersRound :size="20" /></header><div class="table-wrap"><table v-if="customers.length" class="data-table"><thead><tr><th>Khách hàng</th><th>Hạng</th><th class="text-right">Chi tiêu</th><th class="text-right">Điểm</th></tr></thead><tbody><tr v-for="item in customers" :key="item.customerId"><td><NuxtLink class="cell-main customer-link" :to="`/customers/${item.customerId}`">{{ item.fullName }}</NuxtLink><div class="cell-sub">{{ item.phone }}</div></td><td><AppBadge tone="warning">{{ item.tierCode }}</AppBadge></td><td class="text-right">{{ formatCurrency(item.eligibleSpend) }}</td><td class="text-right cell-main">{{ formatNumber(item.availablePoints) }}</td></tr></tbody></table><AppEmpty v-else title="Chưa có dữ liệu thành viên" message="Điểm được tạo khi khách thanh toán hóa đơn." /></div></article>
-      <article class="card"><header class="card-header"><h2 class="card-title">Quy tắc đang áp dụng</h2></header><div class="rule-list"><div v-for="rule in rules" :key="rule.id" class="rule-card"><div><strong>{{ rule.name }}</strong><AppBadge :tone="rule.isActive ? 'success' : 'neutral'">{{ rule.isActive ? 'Đang bật' : 'Tạm tắt' }}</AppBadge></div><p>{{ formatCurrency(rule.spendPerPoint) }} = 1 điểm · 1 điểm = {{ formatCurrency(rule.redemptionValue) }}</p><small>Đổi tối thiểu {{ formatNumber(rule.minimumRedemptionPoints) }} điểm · Tối đa {{ rule.maximumRedemptionRate * 100 }}% hóa đơn</small></div><AppEmpty v-if="!rules.length" title="Chưa có quy tắc điểm" message="Cấu hình cách tích và sử dụng điểm loyalty." /></div></article>
+      <article class="card"><header class="card-header"><h2 class="card-title">Quy tắc đang áp dụng</h2></header><div class="rule-list"><div v-for="rule in rules" :key="rule.id" class="rule-card"><div><strong>{{ rule.name }}</strong><span class="inline"><AppBadge :tone="rule.isActive ? 'success' : 'neutral'">{{ rule.isActive ? 'Đang bật' : 'Tạm tắt' }}</AppBadge><button class="icon-btn danger-button" title="Xóa quy tắc" @click="removeRule(rule)"><Trash2 :size="14" /></button></span></div><p>{{ formatCurrency(rule.spendPerPoint) }} = 1 điểm · 1 điểm = {{ formatCurrency(rule.redemptionValue) }}</p><small>Đổi tối thiểu {{ formatNumber(rule.minimumRedemptionPoints) }} điểm · Tối đa {{ rule.maximumRedemptionRate * 100 }}% hóa đơn</small></div><AppEmpty v-if="!rules.length" title="Chưa có quy tắc điểm" message="Cấu hình cách tích và sử dụng điểm loyalty." /></div></article>
     </section>
 
-    <AppModal :open="tierOpen" title="Tạo hạng thành viên" @close="tierOpen = false"><form id="tier-form" class="form-grid" @submit.prevent="saveTier"><div class="field"><label>Mã hạng</label><input v-model.trim="tierForm.code" class="input" required /></div><div class="field"><label>Tên hạng</label><input v-model.trim="tierForm.name" class="input" required /></div><div class="field"><label>Cấp xếp hạng</label><AppNumberInput v-model="tierForm.rank" class="input" min="1" /></div><div class="field"><label>Chi tiêu tối thiểu</label><AppNumberInput v-model="tierForm.minEligibleSpend" class="input" min="0" /></div><div class="field"><label>Điểm tối thiểu</label><AppNumberInput v-model="tierForm.minEarnedPoints" class="input" min="0" /></div><div class="field"><label>Hệ số tích điểm</label><AppNumberInput v-model="tierForm.earnRate" class="input" min="0" step=".1" /></div><div class="field span-2"><label>Quyền lợi (phân cách bằng dấu phẩy)</label><input v-model="tierForm.benefitsText" class="input" /></div></form><template #footer><button class="btn btn-secondary" @click="tierOpen = false">Hủy</button><button class="btn btn-primary" form="tier-form" :disabled="saving">Tạo hạng</button></template></AppModal>
+    <AppModal :open="tierOpen" title="Tạo hạng thành viên" @close="tierOpen = false"><form id="tier-form" class="form-grid" @submit.prevent="saveTier"><div class="field"><label>Mã hạng <span class="muted">(tự động)</span></label><input v-model.trim="tierForm.code" class="input" placeholder="Ví dụ: HTV-000001" /></div><div class="field"><label>Tên hạng</label><input v-model.trim="tierForm.name" class="input" required /></div><div class="field"><label>Cấp xếp hạng</label><AppNumberInput v-model="tierForm.rank" class="input" min="1" /></div><div class="field"><label>Chi tiêu tối thiểu</label><AppNumberInput v-model="tierForm.minEligibleSpend" class="input" min="0" /></div><div class="field"><label>Điểm tối thiểu</label><AppNumberInput v-model="tierForm.minEarnedPoints" class="input" min="0" /></div><div class="field"><label>Hệ số tích điểm</label><AppNumberInput v-model="tierForm.earnRate" class="input" min="0" step=".1" /></div><div class="field span-2"><label>Quyền lợi (phân cách bằng dấu phẩy)</label><input v-model="tierForm.benefitsText" class="input" /></div></form><template #footer><button class="btn btn-secondary" @click="tierOpen = false">Hủy</button><button class="btn btn-primary" form="tier-form" :disabled="saving">Tạo hạng</button></template></AppModal>
     <AppModal :open="ruleOpen" title="Tạo quy tắc tích điểm" @close="ruleOpen = false"><form id="rule-form" class="form-grid" @submit.prevent="saveRule"><div class="field span-2"><label>Tên quy tắc</label><input v-model.trim="ruleForm.name" class="input" required /></div><div class="field"><label>Chi tiêu cho 1 điểm</label><AppNumberInput v-model="ruleForm.spendPerPoint" class="input" min="1" /></div><div class="field"><label>Giá trị 1 điểm</label><AppNumberInput v-model="ruleForm.redemptionValue" class="input" min=".01" /></div><div class="field"><label>Điểm đổi tối thiểu</label><AppNumberInput v-model="ruleForm.minimumRedemptionPoints" class="input" min="1" /></div><div class="field"><label>Tỷ lệ giảm tối đa (0–1)</label><AppNumberInput v-model="ruleForm.maximumRedemptionRate" class="input" min=".01" max="1" step=".01" /></div><div class="field"><label>Ngày hiệu lực</label><input v-model="ruleForm.effectiveFrom" class="input" type="date" required /></div><div class="field"><label>Hạn điểm (ngày)</label><AppNumberInput v-model="ruleForm.pointExpiryDays" class="input" min="1" /></div></form><template #footer><button class="btn btn-secondary" @click="ruleOpen = false">Hủy</button><button class="btn btn-primary" form="rule-form" :disabled="saving">Tạo quy tắc</button></template></AppModal>
   </div>
 </template>

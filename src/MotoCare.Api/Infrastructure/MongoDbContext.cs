@@ -54,11 +54,17 @@ public static class CollectionNames
             [typeof(VehicleModel)] = "vehicle_models",
             [typeof(Vehicle)] = "vehicles",
             [typeof(PartBrand)] = "part_brands",
+            [typeof(Supplier)] = "suppliers",
+            [typeof(PartCategory)] = "part_categories",
+            [typeof(ServiceCategory)] = "service_categories",
+            [typeof(SupplierPartStock)] = "supplier_part_stocks",
             [typeof(Part)] = "parts",
             [typeof(InventoryTransaction)] = "inventory_transactions",
             [typeof(RepairOrder)] = "repair_orders",
             [typeof(Invoice)] = "invoices",
+            [typeof(Coupon)] = "coupons",
             [typeof(CashTransaction)] = "cash_transactions",
+            [typeof(CashCategory)] = "cash_categories",
             [typeof(LoyaltyTier)] = "loyalty_tiers",
             [typeof(LoyaltyRule)] = "loyalty_rules",
             [typeof(LoyaltyAccount)] = "loyalty_accounts",
@@ -67,6 +73,10 @@ public static class CollectionNames
             [typeof(AuditLog)] = "audit_logs",
             [typeof(Sequence)] = "sequences"
         };
+
+    public static IReadOnlyCollection<string> All { get; } = Names.Values
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
 
     public static string For<T>() where T : BaseDocument =>
         Names.TryGetValue(typeof(T), out var name)

@@ -92,6 +92,53 @@ public sealed class RepairOrdersController(
         return Ok(ApiEnvelope.Ok(await service.AddItemAsync(id, request, cancellationToken)));
     }
 
+    [HttpPatch("{id}/condition-images")]
+    [Authorize(Roles = SecurityRoles.Operations)]
+    public async Task<IActionResult> UpdateConditionImages(
+        string id,
+        UpdateVehicleConditionImagesRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(ApiEnvelope.Ok(await service.UpdateConditionImagesAsync(
+            id,
+            request.Images,
+            cancellationToken)));
+    }
+
+    [HttpPatch("{id}/odometer")]
+    [Authorize(Roles = SecurityRoles.Operations)]
+    public async Task<IActionResult> UpdateOdometer(
+        string id,
+        UpdateRepairOrderOdometerRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(ApiEnvelope.Ok(await service.UpdateOdometerAsync(
+            id,
+            request.OdometerIn,
+            cancellationToken)));
+    }
+
+    [HttpPut("{id}/items/{itemId}")]
+    [Authorize(Roles = SecurityRoles.Management)]
+    public async Task<IActionResult> UpdateItem(
+        string id,
+        string itemId,
+        UpdateRepairOrderItemRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(ApiEnvelope.Ok(await service.UpdateItemAsync(id, itemId, request, cancellationToken)));
+    }
+
+    [HttpDelete("{id}/items/{itemId}")]
+    [Authorize(Roles = SecurityRoles.Management)]
+    public async Task<IActionResult> DeleteItem(
+        string id,
+        string itemId,
+        CancellationToken cancellationToken)
+    {
+        return Ok(ApiEnvelope.Ok(await service.DeleteItemAsync(id, itemId, cancellationToken)));
+    }
+
     [HttpPatch("{id}/status")]
     [Authorize(Roles = SecurityRoles.Operations)]
     public async Task<IActionResult> ChangeStatus(
@@ -107,7 +154,7 @@ public sealed class RepairOrdersController(
     }
 
     [HttpPatch("{id}/items/{itemId}/work")]
-    [Authorize(Roles = SecurityRoles.Administrator + "," + SecurityRoles.Manager + "," + SecurityRoles.Technician)]
+    [Authorize(Roles = SecurityRoles.Management)]
     public async Task<IActionResult> UpdateWork(
         string id,
         string itemId,
@@ -121,11 +168,37 @@ public sealed class RepairOrdersController(
             cancellationToken)));
     }
 
-    [HttpPost("{id}/issue-parts")]
+    [HttpDelete("{id}")]
     [Authorize(Roles = SecurityRoles.Management)]
-    public async Task<IActionResult> IssueParts(string id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Delete(string id, CancellationToken cancellationToken)
     {
-        return Ok(ApiEnvelope.Ok(await service.IssuePartsAsync(id, UserId(), cancellationToken)));
+        var order = await context.Collection<RepairOrder>()
+            .Find(x => x.Id == id && !x.IsDeleted)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (order is null)
+        {
+            return NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy phiếu sửa chữa."));
+        }
+
+        var hasActiveInvoice = await context.Collection<Invoice>()
+            .Find(x => x.RepairOrderId == id
+                && !x.IsDeleted
+                && x.PaymentStatus != InvoicePaymentStatus.Cancelled)
+            .AnyAsync(cancellationToken);
+        if (hasActiveInvoice)
+        {
+            throw new InvalidOperationException(
+                "Không thể xóa phiếu sửa chữa đang có hóa đơn còn hiệu lực. Hãy hủy hóa đơn trước.");
+        }
+
+        var update = Builders<RepairOrder>.Update
+            .Set(x => x.IsDeleted, true)
+            .Set(x => x.UpdatedAt, DateTime.UtcNow);
+        await context.Collection<RepairOrder>().UpdateOneAsync(
+            x => x.Id == id && !x.IsDeleted,
+            update,
+            cancellationToken: cancellationToken);
+        return Ok(ApiEnvelope.Ok(new { id, deleted = true }, "Đã xóa phiếu sửa chữa."));
     }
 
     private string UserId() =>

@@ -14,7 +14,8 @@ namespace MotoCare.Api.Controllers;
 [Authorize]
 public sealed class LoyaltyController(
     MongoDbContext context,
-    LoyaltyService service) : ControllerBase
+    LoyaltyService service,
+    AutoCodeService autoCodes) : ControllerBase
 {
     [HttpGet("tiers")]
     public async Task<IActionResult> Tiers(CancellationToken cancellationToken)
@@ -34,7 +35,7 @@ public sealed class LoyaltyController(
     {
         var tier = new LoyaltyTier
         {
-            Code = request.Code.Trim().ToUpperInvariant(),
+            Code = request.Code?.Trim().ToUpperInvariant() ?? string.Empty,
             Name = request.Name.Trim(),
             Rank = request.Rank,
             MinEligibleSpend = request.MinEligibleSpend,
@@ -45,8 +46,25 @@ public sealed class LoyaltyController(
             Description = request.Description?.Trim(),
             IsActive = request.IsActive
         };
+        await autoCodes.EnsureAsync(tier, cancellationToken);
         await context.Collection<LoyaltyTier>().InsertOneAsync(tier, cancellationToken: cancellationToken);
         return Ok(ApiEnvelope.Ok(tier));
+    }
+
+    [HttpDelete("tiers/{id}")]
+    [Authorize(Roles = SecurityRoles.Management)]
+    public async Task<IActionResult> DeleteTier(string id, CancellationToken cancellationToken)
+    {
+        var update = Builders<LoyaltyTier>.Update
+            .Set(x => x.IsDeleted, true)
+            .Set(x => x.UpdatedAt, DateTime.UtcNow);
+        var result = await context.Collection<LoyaltyTier>().UpdateOneAsync(
+            x => x.Id == id && !x.IsDeleted,
+            update,
+            cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1
+            ? Ok(ApiEnvelope.Ok(new { id, deleted = true }))
+            : NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy hạng thành viên."));
     }
 
     [HttpGet("rules")]
@@ -84,6 +102,22 @@ public sealed class LoyaltyController(
         };
         await context.Collection<LoyaltyRule>().InsertOneAsync(rule, cancellationToken: cancellationToken);
         return Ok(ApiEnvelope.Ok(rule));
+    }
+
+    [HttpDelete("rules/{id}")]
+    [Authorize(Roles = SecurityRoles.Management)]
+    public async Task<IActionResult> DeleteRule(string id, CancellationToken cancellationToken)
+    {
+        var update = Builders<LoyaltyRule>.Update
+            .Set(x => x.IsDeleted, true)
+            .Set(x => x.UpdatedAt, DateTime.UtcNow);
+        var result = await context.Collection<LoyaltyRule>().UpdateOneAsync(
+            x => x.Id == id && !x.IsDeleted,
+            update,
+            cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1
+            ? Ok(ApiEnvelope.Ok(new { id, deleted = true }))
+            : NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy quy tắc tích điểm."));
     }
 
     [HttpPost("redemptions/preview")]

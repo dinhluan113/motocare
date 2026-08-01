@@ -50,4 +50,17 @@ const emit = defineEmits<{ change: [page: number] }>()
 .pagination strong {
   color: var(--navy-900);
 }
+
+@media (max-width: 560px) {
+  .pagination {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 12px 14px;
+    text-align: center;
+  }
+
+  .pagination .inline {
+    justify-content: space-between;
+  }
+}
 </style>

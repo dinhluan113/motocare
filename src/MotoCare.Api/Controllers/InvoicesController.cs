@@ -20,6 +20,7 @@ public sealed class InvoicesController(
     public async Task<IActionResult> GetPage(
         [FromQuery] InvoicePaymentStatus? status,
         [FromQuery] string? customerId,
+        [FromQuery] string? repairOrderId,
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
         [FromQuery] int page = 1,
@@ -38,6 +39,11 @@ public sealed class InvoicesController(
         if (!string.IsNullOrWhiteSpace(customerId))
         {
             filters.Add(Builders<Invoice>.Filter.Eq(x => x.CustomerId, customerId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(repairOrderId))
+        {
+            filters.Add(Builders<Invoice>.Filter.Eq(x => x.RepairOrderId, repairOrderId));
         }
 
         if (from.HasValue)
@@ -110,6 +116,20 @@ public sealed class InvoicesController(
         CancellationToken cancellationToken)
     {
         return Ok(ApiEnvelope.Ok(await service.RefundAsync(
+            id,
+            request,
+            UserId(),
+            cancellationToken)));
+    }
+
+    [HttpPost("{id}/cancel")]
+    [Authorize(Roles = SecurityRoles.Management)]
+    public async Task<IActionResult> Cancel(
+        string id,
+        CancelInvoiceRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(ApiEnvelope.Ok(await service.CancelAsync(
             id,
             request,
             UserId(),

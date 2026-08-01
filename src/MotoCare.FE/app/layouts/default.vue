@@ -5,6 +5,7 @@ import {
   ChevronDown,
   CircleUserRound,
   ClipboardList,
+  TicketPercent,
   Database,
   FileText,
   LayoutDashboard,
@@ -13,6 +14,10 @@ import {
   Package,
   ReceiptText,
   Search,
+  Settings,
+  ScrollText,
+  ShieldCheck,
+  Truck,
   Star,
   Users,
   WalletCards,
@@ -25,28 +30,58 @@ import { formatDate } from '~/utils/format'
 
 const route = useRoute()
 const auth = useAuth()
+const api = useApi()
 const notifications = useRealtimeNotifications()
 const mobileOpen = ref(false)
 const notificationOpen = ref(false)
+const demoDataEnabled = ref(false)
 
-const navigation = [
+const allNavigation = [
   { label: 'Tổng quan', to: '/', icon: LayoutDashboard },
   { label: 'Phiếu sửa chữa', to: '/repair-orders', icon: ClipboardList },
   { label: 'Khách hàng & xe', to: '/customers', icon: Users },
   { label: 'Nhân viên', to: '/employees', icon: Wrench },
+  { label: 'Nhà cung cấp', to: '/suppliers', icon: Truck },
   { label: 'Kho phụ tùng', to: '/inventory', icon: Package },
   { label: 'Hóa đơn', to: '/invoices', icon: ReceiptText },
   { label: 'Thu chi', to: '/finance', icon: WalletCards },
   { label: 'Loyalty', to: '/loyalty', icon: Star },
+  { label: 'Coupon', to: '/coupons', icon: TicketPercent, adminOnly: true },
   { label: 'Báo cáo', to: '/reports', icon: ChartNoAxesCombined },
-  { label: 'Danh mục', to: '/catalogs', icon: Database }
+  { label: 'Danh mục', to: '/catalogs', icon: Database },
+  { label: 'Lịch sử thao tác', to: '/audit-logs', icon: ScrollText },
+  { label: 'Tài khoản & quyền', to: '/users', icon: ShieldCheck, adminOnly: true },
+  { label: 'Cài đặt', to: '/settings', icon: Settings, adminOnly: true, demoDataOnly: true }
 ]
+const employeePaths = new Set(['/repair-orders', '/customers', '/inventory'])
+const navigation = computed(() => {
+  const isEmployee = auth.hasAnyRole('Employee')
+  const isAdmin = auth.hasAnyRole('Admin', 'Administrator')
+  return allNavigation.filter(item =>
+    (!isEmployee || employeePaths.has(item.to))
+    && (!(item as any).adminOnly || isAdmin)
+    && (!(item as any).demoDataOnly || demoDataEnabled.value))
+})
+
+onMounted(async () => {
+  if (!auth.hasAnyRole('Admin', 'Administrator')) return
+  try {
+    const status = await api.request<{ enabled: boolean }>('/settings/demo-data')
+    demoDataEnabled.value = status.enabled
+  } catch {
+    demoDataEnabled.value = false
+  }
+})
 
 const active = (to: string) =>
   to === '/' ? route.path === '/' : route.path.startsWith(to)
 
 const unread = (item: any) =>
   !item.isRead && !item.readByUserIds?.includes(auth.user.value?.id)
+const roleLabel = computed(() => {
+  const role = auth.user.value?.roles?.[0]
+  return role === 'Admin' || role === 'Administrator' ? 'Admin' : role === 'Manager' ? 'Quản lý' : role === 'Employee' ? 'Nhân viên' : role
+})
 
 const openNotification = async (item: any) => {
   if (unread(item)) await notifications.markRead(item.id)
@@ -179,7 +214,7 @@ watch(() => route.fullPath, () => {
             </div>
             <div>
               <strong>{{ auth.user.value?.fullName }}</strong>
-              <span>{{ auth.user.value?.roles?.[0] }}</span>
+              <span>{{ roleLabel }}</span>
             </div>
             <ChevronDown :size="15" />
           </div>
@@ -204,6 +239,7 @@ watch(() => route.fullPath, () => {
   inset: 0 auto 0 0;
   display: flex;
   width: var(--sidebar-width);
+  max-width: calc(100vw - 44px);
   flex-direction: column;
   padding: 18px 14px;
   color: #d8e6f2;
@@ -297,7 +333,12 @@ watch(() => route.fullPath, () => {
 
 nav {
   display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
   gap: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .nav-link {
@@ -340,6 +381,7 @@ nav {
 
 .sidebar-footer {
   display: grid;
+  flex: 0 0 auto;
   gap: 10px;
   margin-top: auto;
 }
@@ -381,6 +423,7 @@ nav {
 }
 
 .main-column {
+  min-width: 0;
   min-height: 100vh;
   margin-left: var(--sidebar-width);
 }
@@ -602,6 +645,7 @@ nav {
 
 .content {
   width: min(1520px, 100%);
+  min-width: 0;
   margin: 0 auto;
   padding: 28px;
 }
@@ -642,6 +686,8 @@ nav {
 
 @media (max-width: 720px) {
   .topbar {
+    min-height: 62px;
+    gap: 8px;
     padding: 10px 14px;
   }
 
@@ -656,11 +702,40 @@ nav {
   }
 
   .profile {
+    margin-left: 0;
     padding-left: 9px;
   }
 
   .content {
-    padding: 20px 14px;
+    padding: 18px 14px calc(22px + env(safe-area-inset-bottom));
+  }
+
+  .notification-panel {
+    position: fixed;
+    top: 68px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+    max-height: calc(100dvh - 80px);
+  }
+
+  .notification-list {
+    max-height: calc(100dvh - 140px);
+  }
+}
+
+@media (max-width: 380px) {
+  .topbar {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .top-actions {
+    gap: 6px;
+  }
+
+  .profile {
+    padding-left: 6px;
   }
 }
 </style>

@@ -11,16 +11,21 @@ namespace MotoCare.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/inventory")]
-[Authorize(Roles = SecurityRoles.Management)]
+[Authorize]
 public sealed class InventoryController(
     InventoryService inventory,
     MongoDbContext context) : ControllerBase
 {
     [HttpPost("movements")]
+    [Authorize(Roles = SecurityRoles.Management)]
     public async Task<IActionResult> Move(
         StockMovementRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.Type == InventoryTransactionType.Receipt)
+        {
+            throw new InvalidOperationException("Nhập phụ tùng phải được lập bằng phiếu chi nhập hàng.");
+        }
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "system";
         var transaction = await inventory.MoveAsync(request, userId, cancellationToken);
         return Ok(ApiEnvelope.Ok(transaction, "Đã cập nhật tồn kho."));
@@ -29,6 +34,7 @@ public sealed class InventoryController(
     [HttpGet("transactions")]
     public async Task<IActionResult> Transactions(
         [FromQuery] string? partId,
+        [FromQuery] string? supplierId,
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
         [FromQuery] int page = 1,
@@ -42,6 +48,10 @@ public sealed class InventoryController(
         if (!string.IsNullOrWhiteSpace(partId))
         {
             filters.Add(Builders<InventoryTransaction>.Filter.Eq(x => x.PartId, partId));
+        }
+        if (!string.IsNullOrWhiteSpace(supplierId))
+        {
+            filters.Add(Builders<InventoryTransaction>.Filter.Eq(x => x.SupplierId, supplierId));
         }
 
         if (from.HasValue)

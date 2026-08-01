@@ -13,7 +13,7 @@ public sealed record LoyaltyAdjustmentRequest(
     [Required, MaxLength(200)] string IdempotencyKey);
 
 public sealed record UpsertLoyaltyTierRequest(
-    [Required, MaxLength(30)] string Code,
+    [MaxLength(30)] string? Code,
     [Required, MaxLength(100)] string Name,
     [Range(1, 100)] int Rank,
     [Range(typeof(decimal), "0", "999999999999")] decimal MinEligibleSpend,

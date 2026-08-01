@@ -4,6 +4,7 @@ import {
   Bike,
   CircleDollarSign,
   Clock3,
+  Droplets,
   PackageX,
   Plus,
   ReceiptText,
@@ -23,6 +24,26 @@ interface Dashboard {
     revenueToday: number
     collectedToday: number
     outstandingToday: number
+  }
+  maintenance: {
+    oilChange: {
+      intervalKm: number
+      warningBeforeKm: number
+      vehicles: Array<{
+        vehicleId: string
+        licensePlate: string
+        customerId: string
+        customerName: string
+        customerPhone?: string
+        currentOdometer: number
+        lastOdometer: number
+        dueOdometer: number
+        remainingKm: number
+        overdue: boolean
+        lastChangedAt: string
+        lastRepairOrderId: string
+      }>
+    }
   }
 }
 
@@ -114,6 +135,19 @@ onMounted(load)
         <div>Kiểm tra tiến độ và chủ động thông báo cho khách hàng.</div>
       </div>
     </div>
+
+    <section v-if="dashboard?.maintenance.oilChange.vehicles.length" class="card oil-alert-card">
+      <header class="card-header">
+        <div><h2 class="card-title"><Droplets :size="20" /> Xe sắp đến hạn thay nhớt</h2><span class="section-note">Chu kỳ {{ formatNumber(dashboard.maintenance.oilChange.intervalKm) }} km · cảnh báo trước {{ formatNumber(dashboard.maintenance.oilChange.warningBeforeKm) }} km</span></div>
+        <AppBadge tone="warning">{{ dashboard.maintenance.oilChange.vehicles.length }} xe</AppBadge>
+      </header>
+      <div class="oil-alert-list">
+        <NuxtLink v-for="item in dashboard.maintenance.oilChange.vehicles" :key="item.vehicleId" :to="`/customers/${item.customerId}`" class="oil-alert-row">
+          <div><strong>{{ item.licensePlate }} · {{ item.customerName }}</strong><span>{{ item.customerPhone || 'Chưa có số điện thoại' }} · ODO hiện tại {{ formatNumber(item.currentOdometer) }} km</span></div>
+          <div class="oil-due"><AppBadge :tone="item.overdue ? 'danger' : 'warning'">{{ item.overdue ? `Quá ${formatNumber(Math.abs(item.remainingKm))} km` : `Còn ${formatNumber(item.remainingKm)} km` }}</AppBadge><small>Hạn tại {{ formatNumber(item.dueOdometer) }} km</small></div>
+        </NuxtLink>
+      </div>
+    </section>
 
     <section class="dashboard-grid">
       <article class="card">
@@ -221,6 +255,16 @@ onMounted(load)
 }
 
 .warning-icon { color: var(--amber); }
+.oil-alert-card { overflow: hidden; border-color: #e8c66a; }
+.oil-alert-card .card-title { display: flex; align-items: center; gap: 8px; }
+.oil-alert-card .card-title svg { color: var(--amber); }
+.oil-alert-list { padding: 4px 18px 12px; }
+.oil-alert-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 2px; border-bottom: 1px solid var(--line); }
+.oil-alert-row:last-child { border-bottom: 0; }
+.oil-alert-row strong, .oil-alert-row span, .oil-due small { display: block; }
+.oil-alert-row strong { color: var(--navy-950); }
+.oil-alert-row span, .oil-due small { margin-top: 3px; color: var(--muted); font-size: 11px; }
+.oil-due { flex: 0 0 auto; text-align: right; }
 
 .stock-list { padding: 8px 18px; }
 
@@ -247,5 +291,7 @@ onMounted(load)
 
 @media (max-width: 600px) {
   .dashboard-metrics { grid-template-columns: 1fr; }
+  .oil-alert-row { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .oil-due { text-align: left; }
 }
 </style>

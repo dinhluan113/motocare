@@ -10,7 +10,7 @@ namespace MotoCare.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/users")]
-[Authorize(Roles = SecurityRoles.Administrator)]
+[Authorize(Roles = SecurityRoles.Administrators)]
 public sealed class UsersController(MongoDbContext context) : ControllerBase
 {
     [HttpGet]
@@ -40,14 +40,12 @@ public sealed class UsersController(MongoDbContext context) : ControllerBase
     {
         var allowedRoles = new[]
         {
-            SecurityRoles.Administrator,
+            SecurityRoles.Admin,
             SecurityRoles.Manager,
-            SecurityRoles.Receptionist,
-            SecurityRoles.Technician,
-            SecurityRoles.Cashier
+            SecurityRoles.Employee
         };
         var roles = request.Roles?.Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
-        if (roles.Count == 0 || roles.Any(role => !allowedRoles.Contains(role, StringComparer.OrdinalIgnoreCase)))
+        if (roles.Count != 1 || roles.Any(role => !allowedRoles.Contains(role, StringComparer.OrdinalIgnoreCase)))
         {
             return BadRequest(ApiEnvelope.Fail("INVALID_ROLES", "Vai trò không hợp lệ."));
         }
@@ -71,5 +69,39 @@ public sealed class UsersController(MongoDbContext context) : ControllerBase
             user.EmployeeId,
             user.Roles
         }));
+    }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Update(
+        string id,
+        UpdateUserRequest request,
+        CancellationToken cancellationToken)
+    {
+        var allowedRoles = new[] { SecurityRoles.Admin, SecurityRoles.Manager, SecurityRoles.Employee };
+        if (!allowedRoles.Contains(request.Role, StringComparer.OrdinalIgnoreCase))
+        {
+            return BadRequest(ApiEnvelope.Fail("INVALID_ROLE", "Vai trò không hợp lệ."));
+        }
+        var user = await context.Collection<AppUser>()
+            .Find(x => x.Id == id && !x.IsDeleted)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+        user.FullName = request.FullName.Trim();
+        user.EmployeeId = request.EmployeeId;
+        user.Roles = [request.Role];
+        user.IsActive = request.IsActive;
+        user.UpdatedAt = DateTime.UtcNow;
+        if (!string.IsNullOrWhiteSpace(request.NewPassword))
+        {
+            user.PasswordHash = new PasswordHasher<AppUser>().HashPassword(user, request.NewPassword);
+        }
+        await context.Collection<AppUser>().ReplaceOneAsync(
+            x => x.Id == user.Id,
+            user,
+            cancellationToken: cancellationToken);
+        return Ok(ApiEnvelope.Ok(new
+        {
+            user.Id, user.Username, user.FullName, user.EmployeeId, user.Roles, user.IsActive
+        }, "Đã cập nhật tài khoản."));
     }
 }

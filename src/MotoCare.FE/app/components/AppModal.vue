@@ -59,8 +59,10 @@ const emit = defineEmits<{ close: [] }>()
 }
 
 .modal {
+  display: flex;
   width: 100%;
   max-height: min(88vh, 820px);
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid rgb(255 255 255 / 35%);
   border-radius: 18px;
@@ -90,9 +92,10 @@ const emit = defineEmits<{ close: [] }>()
 }
 
 .modal-content {
-  max-height: calc(88vh - 155px);
+  min-height: 0;
   overflow-y: auto;
   padding: 22px;
+  overscroll-behavior: contain;
 }
 
 .modal-footer {
@@ -122,5 +125,44 @@ const emit = defineEmits<{ close: [] }>()
 .modal-enter-from .modal,
 .modal-leave-to .modal {
   transform: translateY(12px) scale(0.98);
+}
+
+@media (max-width: 640px) {
+  .modal-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .modal {
+    max-width: none !important;
+    max-height: calc(100dvh - env(safe-area-inset-top));
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .modal-header {
+    gap: 12px;
+    padding: 16px 14px 13px;
+  }
+
+  .modal-header h2 {
+    font-size: 1.08rem;
+  }
+
+  .modal-content {
+    padding: 16px 14px;
+  }
+
+  .modal-footer {
+    flex-wrap: wrap;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .modal-footer :deep(.btn) {
+    min-width: min(150px, 100%);
+    flex: 1 1 140px;
+  }
 }
 </style>

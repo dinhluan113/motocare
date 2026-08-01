@@ -39,6 +39,7 @@ coverage.*/
 *.coveragexml
 artifacts/
 src/MotoCare.Api/data-protection-keys/
+src/MotoCare.Api/wwwroot/uploads/
 
 # Node.js / Nuxt
 **/node_modules/

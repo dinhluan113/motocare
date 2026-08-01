@@ -21,6 +21,7 @@ public sealed class VehiclesController(
         [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] bool includeDeleted = false,
         CancellationToken cancellationToken = default)
     {
         var filters = new List<FilterDefinition<Vehicle>>();
@@ -44,13 +45,17 @@ public sealed class VehiclesController(
             filter,
             page,
             pageSize,
-            cancellationToken: cancellationToken)));
+            cancellationToken: cancellationToken,
+            includeDeleted: includeDeleted)));
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetById(string id, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetById(
+        string id,
+        [FromQuery] bool includeDeleted,
+        CancellationToken cancellationToken)
     {
-        var vehicle = await repository.GetByIdAsync(id, cancellationToken);
+        var vehicle = await repository.GetByIdAsync(id, cancellationToken, includeDeleted);
         return vehicle is null
             ? NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy xe."))
             : Ok(ApiEnvelope.Ok(vehicle));
@@ -82,6 +87,15 @@ public sealed class VehiclesController(
         Apply(vehicle, request);
         await repository.ReplaceAsync(vehicle, cancellationToken);
         return Ok(ApiEnvelope.Ok(vehicle, "Đã cập nhật xe."));
+    }
+
+    [HttpDelete("{id}")]
+    [Authorize(Roles = SecurityRoles.Management)]
+    public async Task<IActionResult> Delete(string id, CancellationToken cancellationToken)
+    {
+        return await repository.SoftDeleteAsync(id, cancellationToken)
+            ? Ok(ApiEnvelope.Ok(new { id, deleted = true }))
+            : NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy xe."));
     }
 
     private async Task ValidateReferences(

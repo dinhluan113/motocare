@@ -6,13 +6,17 @@ namespace MotoCare.Api.Infrastructure;
 public interface IMongoRepository<T> where T : BaseDocument
 {
     IMongoCollection<T> Collection { get; }
-    Task<T?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
+    Task<T?> GetByIdAsync(
+        string id,
+        CancellationToken cancellationToken = default,
+        bool includeDeleted = false);
     Task<PagedResult<T>> GetPageAsync(
         FilterDefinition<T> filter,
         int page,
         int pageSize,
         SortDefinition<T>? sort = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool includeDeleted = false);
     Task InsertAsync(T entity, CancellationToken cancellationToken = default);
     Task<bool> ReplaceAsync(T entity, CancellationToken cancellationToken = default);
     Task<bool> SoftDeleteAsync(string id, CancellationToken cancellationToken = default);
@@ -23,21 +27,34 @@ public sealed class MongoRepository<T>(MongoDbContext context) : IMongoRepositor
 {
     public IMongoCollection<T> Collection { get; } = context.Collection<T>();
 
-    public async Task<T?> GetByIdAsync(string id, CancellationToken cancellationToken = default) =>
-        await Collection.Find(x => x.Id == id && !x.IsDeleted).FirstOrDefaultAsync(cancellationToken);
+    public async Task<T?> GetByIdAsync(
+        string id,
+        CancellationToken cancellationToken = default,
+        bool includeDeleted = false)
+    {
+        var filter = Builders<T>.Filter.Eq(x => x.Id, id);
+        if (!includeDeleted)
+        {
+            filter &= Builders<T>.Filter.Eq(x => x.IsDeleted, false);
+        }
+        return await Collection.Find(filter).FirstOrDefaultAsync(cancellationToken);
+    }
 
     public async Task<PagedResult<T>> GetPageAsync(
         FilterDefinition<T> filter,
         int page,
         int pageSize,
         SortDefinition<T>? sort = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeDeleted = false)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
-        var activeFilter = Builders<T>.Filter.And(
-            Builders<T>.Filter.Eq(x => x.IsDeleted, false),
-            filter);
+        var activeFilter = includeDeleted
+            ? filter
+            : Builders<T>.Filter.And(
+                Builders<T>.Filter.Eq(x => x.IsDeleted, false),
+                filter);
         var total = await Collection.CountDocumentsAsync(activeFilter, cancellationToken: cancellationToken);
         var query = Collection.Find(activeFilter)
             .Sort(sort ?? Builders<T>.Sort.Descending(x => x.UpdatedAt))

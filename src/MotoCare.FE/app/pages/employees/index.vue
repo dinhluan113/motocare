@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Edit3, Plus, Search, UserCog } from '@lucide/vue'
+import { Edit3, Plus, Search, Trash2, UserCog } from '@lucide/vue'
 import type { Employee, PagedResult } from '~/types/api'
 import { formatNumber, statusLabel } from '~/utils/format'
 
@@ -67,6 +67,13 @@ const save = async () => {
     await load(result.value.page)
   } finally { saving.value = false }
 }
+const remove = async () => {
+  if (!editing.value || !confirm(`Xóa nhân viên ${editing.value.fullName}?`)) return
+  await api.request(`/employees/${editing.value.id}`, { method: 'DELETE' })
+  toast.success('Đã xóa nhân viên', editing.value.fullName)
+  modalOpen.value = false
+  await load(result.value.page)
+}
 
 onMounted(() => load())
 </script>
@@ -109,7 +116,7 @@ onMounted(() => load())
 
     <AppModal :open="modalOpen" :title="editing ? 'Cập nhật nhân viên' : 'Thêm nhân viên'" width="760px" @close="modalOpen = false">
       <form id="employee-form" class="form-grid" @submit.prevent="save">
-        <div class="field"><label>Mã nhân viên *</label><input v-model.trim="form.employeeCode" class="input" required /></div>
+        <div class="field"><label>Mã nhân viên <span class="muted">(tự động)</span></label><input v-model.trim="form.employeeCode" class="input" placeholder="Ví dụ: NV-000001" /></div>
         <div class="field"><label>Họ và tên *</label><input v-model.trim="form.fullName" class="input" required /></div>
         <div class="field"><label>Số điện thoại *</label><input v-model.trim="form.phone" class="input" required /></div>
         <div class="field"><label>Email</label><input v-model.trim="form.email" class="input" type="email" /></div>
@@ -122,7 +129,7 @@ onMounted(() => load())
         <AppAddressFields v-model="form.addressDetails" />
         <div class="field span-2"><label>Ghi chú</label><textarea v-model.trim="form.notes" class="textarea" /></div>
       </form>
-      <template #footer><button class="btn btn-secondary" @click="modalOpen = false">Hủy</button><button class="btn btn-primary" form="employee-form" :disabled="saving">{{ saving ? 'Đang lưu...' : 'Lưu nhân viên' }}</button></template>
+      <template #footer><button v-if="editing" class="btn btn-secondary danger-button" :disabled="saving" @click="remove"><Trash2 :size="15" /> Xóa</button><button class="btn btn-secondary" @click="modalOpen = false">Hủy</button><button class="btn btn-primary" form="employee-form" :disabled="saving">{{ saving ? 'Đang lưu...' : 'Lưu nhân viên' }}</button></template>
     </AppModal>
   </div>
 </template>

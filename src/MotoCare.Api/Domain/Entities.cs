@@ -129,12 +129,78 @@ public sealed class PartBrand : BaseDocument
     public bool IsActive { get; set; } = true;
 }
 
+public sealed class Supplier : BaseDocument
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Phone { get; set; } = string.Empty;
+    public string? TaxCode { get; set; }
+    public string? Address { get; set; }
+    public AddressDetails? AddressDetails { get; set; }
+    public string? Notes { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+public sealed class PartCategory : BaseDocument
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public List<PartSpecificationDefinition> SpecificationDefinitions { get; set; } = [];
+    public bool IsActive { get; set; } = true;
+}
+
+public sealed class ServiceCategory : BaseDocument
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal DefaultPrice { get; set; }
+
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+public sealed class PartSpecificationDefinition
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? Unit { get; set; }
+    public bool IsRequired { get; set; }
+}
+
+public sealed class PartSpecificationValue
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? Unit { get; set; }
+    public string Value { get; set; } = string.Empty;
+}
+
+public sealed class SupplierPartStock : BaseDocument
+{
+    public string SupplierId { get; set; } = string.Empty;
+    public string PartId { get; set; } = string.Empty;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal QuantityOnHand { get; set; }
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal LastUnitCost { get; set; }
+
+    public DateTime? LastReceiptAt { get; set; }
+}
+
 public sealed class Part : BaseDocument
 {
     public string Code { get; set; } = string.Empty;
     public string? Barcode { get; set; }
     public string Name { get; set; } = string.Empty;
     public string PartBrandId { get; set; } = string.Empty;
+    public string PartCategoryId { get; set; } = string.Empty;
+    public List<PartSpecificationValue> Specifications { get; set; } = [];
+    public List<string> SupplierIds { get; set; } = [];
     public string Unit { get; set; } = "Cái";
 
     [BsonRepresentation(BsonType.Decimal128)]
@@ -180,6 +246,7 @@ public sealed class InventoryTransaction : BaseDocument
 
     public string? ReferenceType { get; set; }
     public string? ReferenceId { get; set; }
+    public string? SupplierId { get; set; }
     public DateTime TransactionDate { get; set; } = DateTime.UtcNow;
     public string PerformedBy { get; set; } = string.Empty;
     public string? Notes { get; set; }
@@ -211,6 +278,12 @@ public enum RepairItemType
     Part
 }
 
+public enum DiscountType
+{
+    Amount,
+    Percentage
+}
+
 public enum WorkStatus
 {
     Pending,
@@ -235,6 +308,11 @@ public sealed class RepairOrderItem
 
     [BsonRepresentation(BsonType.Decimal128)]
     public decimal DiscountAmount { get; set; }
+
+    public DiscountType DiscountType { get; set; } = DiscountType.Amount;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal DiscountValue { get; set; }
 
     [BsonRepresentation(BsonType.Decimal128)]
     public decimal LineTotal { get; set; }
@@ -267,6 +345,7 @@ public sealed class RepairOrder : BaseDocument
     public int? OdometerIn { get; set; }
     public string? FuelLevel { get; set; }
     public string VehicleCondition { get; set; } = string.Empty;
+    public List<string> VehicleConditionImages { get; set; } = [];
     public string CustomerRequest { get; set; } = string.Empty;
     public string? Diagnosis { get; set; }
     public string? InternalNotes { get; set; }
@@ -314,6 +393,11 @@ public sealed class InvoiceItem
     [BsonRepresentation(BsonType.Decimal128)]
     public decimal DiscountAmount { get; set; }
 
+    public DiscountType DiscountType { get; set; } = DiscountType.Amount;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal DiscountValue { get; set; }
+
     [BsonRepresentation(BsonType.Decimal128)]
     public decimal TaxRate { get; set; }
 
@@ -349,6 +433,22 @@ public sealed class Invoice : BaseDocument
     [BsonRepresentation(BsonType.Decimal128)]
     public decimal DiscountAmount { get; set; }
 
+    public DiscountType DiscountType { get; set; } = DiscountType.Amount;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal DiscountValue { get; set; }
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal ItemDiscountAmount { get; set; }
+
+    public string? CouponId { get; set; }
+    public string? CouponCode { get; set; }
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal CouponDiscountAmount { get; set; }
+
+    public bool CouponUsageReturned { get; set; }
+
     [BsonRepresentation(BsonType.Decimal128)]
     public decimal TaxRate { get; set; }
 
@@ -381,16 +481,63 @@ public sealed class Invoice : BaseDocument
     public bool LoyaltyEarned { get; set; }
 }
 
+public enum CouponAudience
+{
+    All,
+    MinimumOrder,
+    SpecificCustomers
+}
+
+public sealed class Coupon : BaseDocument
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public CouponAudience Audience { get; set; } = CouponAudience.All;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal MinimumOrderAmount { get; set; }
+
+    public List<string> CustomerIds { get; set; } = [];
+    public DiscountType DiscountType { get; set; } = DiscountType.Amount;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal DiscountValue { get; set; }
+
+    public int? UsageLimit { get; set; }
+    public int UsedCount { get; set; }
+    public DateTime? StartAt { get; set; }
+    public DateTime? EndAt { get; set; }
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
 public enum CashTransactionType
 {
     Income,
     Expense
 }
 
+public enum CashCategoryScope
+{
+    Income,
+    Expense,
+    Both
+}
+
+public sealed class CashCategory : BaseDocument
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public CashCategoryScope Scope { get; set; } = CashCategoryScope.Both;
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
 public sealed class CashTransaction : BaseDocument
 {
     public string Code { get; set; } = string.Empty;
     public CashTransactionType Type { get; set; }
+    public string? CashCategoryId { get; set; }
     public string Category { get; set; } = string.Empty;
     public DateTime TransactionDate { get; set; } = DateTime.UtcNow;
 
@@ -405,6 +552,36 @@ public sealed class CashTransaction : BaseDocument
     public string CreatedBy { get; set; } = string.Empty;
     public string? ApprovedBy { get; set; }
     public string Status { get; set; } = "Approved";
+    public string Purpose { get; set; } = "Other";
+    public string? SupplierId { get; set; }
+    public List<PurchaseExpenseItem> PurchaseItems { get; set; } = [];
+    public DateTime? ConfirmedAt { get; set; }
+    public string? ConfirmedBy { get; set; }
+}
+
+public sealed class PurchaseExpenseItem
+{
+    public string Id { get; set; } = ObjectId.GenerateNewId().ToString();
+    public string PartId { get; set; } = string.Empty;
+    public string PartCode { get; set; } = string.Empty;
+    public string PartName { get; set; } = string.Empty;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal Quantity { get; set; }
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal UnitCost { get; set; }
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal LineTotal { get; set; }
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal SalePriceSnapshot { get; set; }
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal ProfitRate { get; set; }
+
+    public bool IsLowProfit { get; set; }
 }
 
 public sealed class LoyaltyTier : BaseDocument
@@ -518,9 +695,13 @@ public sealed class Notification : BaseDocument
 public sealed class AuditLog : BaseDocument
 {
     public string? UserId { get; set; }
+    public string? Username { get; set; }
+    public string? UserDisplayName { get; set; }
     public string Action { get; set; } = string.Empty;
     public string EntityType { get; set; } = string.Empty;
     public string EntityId { get; set; } = string.Empty;
+    public string RequestPath { get; set; } = string.Empty;
+    public int StatusCode { get; set; }
     public string? BeforeData { get; set; }
     public string? AfterData { get; set; }
     public string? IpAddress { get; set; }

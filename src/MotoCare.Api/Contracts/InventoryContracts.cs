@@ -10,4 +10,6 @@ public sealed record StockMovementRequest(
     [Range(typeof(decimal), "0", "999999999999")] decimal UnitCost,
     string? ReferenceType,
     string? ReferenceId,
-    [MaxLength(2_000)] string? Notes);
+    [MaxLength(2_000)] string? Notes,
+    string? SupplierId = null,
+    DateTime? TransactionDate = null);

@@ -10,6 +10,7 @@ namespace MotoCare.Api.Services;
 public sealed class InvoiceService(
     MongoDbContext context,
     SequenceService sequences,
+    InventoryService inventory,
     LoyaltyService loyalty,
     IHubContext<NotificationHub> hub)
 {
@@ -18,81 +19,176 @@ public sealed class InvoiceService(
         string userId,
         CancellationToken cancellationToken = default)
     {
-        var orders = context.Collection<RepairOrder>();
-        var order = await orders.Find(x => x.Id == request.RepairOrderId && !x.IsDeleted)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
-        if (order.Status is not RepairOrderStatus.Completed and not RepairOrderStatus.Delivered)
+        using var session = await context.Client.StartSessionAsync(cancellationToken: cancellationToken);
+        session.StartTransaction();
+        var changedParts = new List<Part>();
+        Invoice? createdInvoice = null;
+        try
         {
-            throw new InvalidOperationException("Chỉ lập hóa đơn khi phiếu sửa chữa đã hoàn tất.");
+            var orders = context.Collection<RepairOrder>();
+            var invoices = context.Collection<Invoice>();
+            var order = await orders.Find(session, x => x.Id == request.RepairOrderId && !x.IsDeleted)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
+            if (order.Status is not RepairOrderStatus.Repairing and not RepairOrderStatus.Completed)
+                throw new InvalidOperationException("Phiếu phải ở trạng thái Đang sửa trước khi xuất hóa đơn.");
+            var billableOrderItems = order.Items
+                .Where(x => x.WorkStatus != WorkStatus.Cancelled)
+                .ToList();
+            if (billableOrderItems.Count == 0)
+                throw new InvalidOperationException("Phiếu sửa chữa chưa có hạng mục.");
+            if (billableOrderItems.Any(x => x.WorkStatus != WorkStatus.Completed))
+                throw new InvalidOperationException("Phải hoàn thành tất cả hạng mục trước khi xuất hóa đơn.");
+            if (await invoices.Find(session, x => x.RepairOrderId == order.Id
+                    && x.PaymentStatus != InvoicePaymentStatus.Cancelled && !x.IsDeleted)
+                .AnyAsync(cancellationToken))
+                throw new InvalidOperationException("Phiếu sửa chữa đã có hóa đơn.");
+
+            var customer = await context.Collection<Customer>()
+                .Find(session, x => x.Id == order.CustomerId && !x.IsDeleted)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new KeyNotFoundException("Không tìm thấy khách hàng.");
+
+            foreach (var item in billableOrderItems.Where(x =>
+                         x.ItemType == RepairItemType.Part
+                         && !x.InventoryIssued
+                         && !string.IsNullOrWhiteSpace(x.PartId)))
+            {
+                var movement = await inventory.MoveWithinTransactionAsync(
+                    session,
+                    new StockMovementRequest(
+                        item.PartId!,
+                        InventoryTransactionType.RepairIssue,
+                        item.Quantity,
+                        0,
+                        nameof(RepairOrder),
+                        order.Id,
+                        $"Tự động xuất khi lập hóa đơn cho phiếu {order.Code}"),
+                    userId,
+                    cancellationToken);
+                changedParts.Add(movement.Part);
+                item.InventoryIssued = true;
+            }
+
+            var items = billableOrderItems.Select(x => new InvoiceItem
+            {
+                ItemType = x.ItemType,
+                ReferenceId = x.PartId ?? x.ServiceId,
+                Description = x.Description,
+                Quantity = x.Quantity,
+                UnitPrice = x.UnitPrice,
+                DiscountType = x.DiscountType,
+                DiscountValue = x.DiscountValue > 0 ? x.DiscountValue : x.DiscountAmount,
+                DiscountAmount = x.DiscountAmount,
+                TaxRate = request.TaxRate,
+                LineTotal = x.LineTotal
+            }).ToList();
+            var subtotal = items.Sum(x => x.Quantity * x.UnitPrice);
+            var itemDiscount = items.Sum(x => x.DiscountAmount);
+            var afterItems = Math.Max(0, subtotal - itemDiscount);
+            var invoiceDiscountValue = request.DiscountValue > 0
+                ? request.DiscountValue
+                : request.DiscountAmount;
+            var invoiceDiscount = CalculateDiscount(
+                afterItems,
+                request.DiscountType,
+                invoiceDiscountValue);
+            var afterInvoiceDiscount = Math.Max(0, afterItems - invoiceDiscount);
+
+            Coupon? coupon = null;
+            var couponDiscount = 0m;
+            if (!string.IsNullOrWhiteSpace(request.CouponCode))
+            {
+                var normalizedCode = request.CouponCode.Trim().ToUpperInvariant();
+                coupon = await context.Collection<Coupon>()
+                    .Find(session, x => x.Code == normalizedCode && !x.IsDeleted)
+                    .FirstOrDefaultAsync(cancellationToken)
+                    ?? throw new InvalidOperationException("Coupon không tồn tại.");
+                ValidateCoupon(coupon, customer.Id, afterInvoiceDiscount);
+                var reserveFilter = Builders<Coupon>.Filter.Eq(x => x.Id, coupon.Id);
+                if (coupon.UsageLimit.HasValue)
+                {
+                    reserveFilter &= Builders<Coupon>.Filter.Lt(
+                        x => x.UsedCount,
+                        coupon.UsageLimit.Value);
+                }
+                var reserved = await context.Collection<Coupon>().UpdateOneAsync(
+                    session,
+                    reserveFilter,
+                    Builders<Coupon>.Update
+                        .Inc(x => x.UsedCount, 1)
+                        .Set(x => x.UpdatedAt, DateTime.UtcNow),
+                    cancellationToken: cancellationToken);
+                if (reserved.ModifiedCount != 1)
+                    throw new InvalidOperationException("Coupon đã hết lượt sử dụng.");
+                couponDiscount = CalculateDiscount(
+                    afterInvoiceDiscount,
+                    coupon.DiscountType,
+                    coupon.DiscountValue);
+            }
+
+            var beforeTax = Math.Max(0, afterInvoiceDiscount - couponDiscount);
+            var taxAmount = decimal.Round(beforeTax * request.TaxRate / 100m, 0, MidpointRounding.AwayFromZero);
+            var total = beforeTax + taxAmount;
+            var invoice = new Invoice
+            {
+                Code = await sequences.NextAsync("invoice", "INV", cancellationToken),
+                RepairOrderId = order.Id,
+                CustomerId = customer.Id,
+                Subtotal = subtotal,
+                DiscountType = request.DiscountType,
+                DiscountValue = invoiceDiscountValue,
+                ItemDiscountAmount = itemDiscount,
+                CouponId = coupon?.Id,
+                CouponCode = coupon?.Code,
+                CouponDiscountAmount = couponDiscount,
+                DiscountAmount = itemDiscount + invoiceDiscount + couponDiscount,
+                TaxRate = request.TaxRate,
+                TaxAmount = taxAmount,
+                TotalAmount = total,
+                RemainingAmount = total,
+                CustomerName = customer.FullName,
+                CustomerPhone = customer.Phone,
+                CustomerAddress = customer.Address,
+                CustomerTaxCode = customer.TaxCode,
+                CreatedBy = userId,
+                Notes = request.Notes?.Trim(),
+                Items = items
+            };
+            await invoices.InsertOneAsync(session, invoice, cancellationToken: cancellationToken);
+            var previousStatus = order.Status;
+            order.Status = RepairOrderStatus.Completed;
+            order.FinalTotal = total;
+            order.UpdatedAt = DateTime.UtcNow;
+            if (previousStatus != RepairOrderStatus.Completed)
+            {
+                order.StatusHistory.Add(new RepairStatusHistory
+                {
+                    FromStatus = previousStatus,
+                    ToStatus = RepairOrderStatus.Completed,
+                    ChangedBy = userId,
+                    Note = $"Tự động hoàn tất khi xuất hóa đơn {invoice.Code}."
+                });
+            }
+            await orders.ReplaceOneAsync(
+                session,
+                x => x.Id == order.Id,
+                order,
+                cancellationToken: cancellationToken);
+            await session.CommitTransactionAsync(cancellationToken);
+            createdInvoice = invoice;
+        }
+        catch
+        {
+            if (session.IsInTransaction) await session.AbortTransactionAsync(cancellationToken);
+            throw;
         }
 
-        if (order.Items.Count == 0)
+        foreach (var part in changedParts)
         {
-            throw new InvalidOperationException("Phiếu sửa chữa chưa có hạng mục.");
+            await inventory.NotifyLowStockAsync(part, cancellationToken);
         }
-
-        if (order.Items.Any(x => x.ItemType == RepairItemType.Part && !x.InventoryIssued))
-        {
-            throw new InvalidOperationException("Phải xuất kho đầy đủ phụ tùng trước khi lập hóa đơn.");
-        }
-
-        if (await context.Collection<Invoice>()
-            .Find(x => x.RepairOrderId == order.Id
-                && x.PaymentStatus != InvoicePaymentStatus.Cancelled
-                && !x.IsDeleted)
-            .AnyAsync(cancellationToken))
-        {
-            throw new InvalidOperationException("Phiếu sửa chữa đã có hóa đơn.");
-        }
-
-        var customer = await context.Collection<Customer>()
-            .Find(x => x.Id == order.CustomerId && !x.IsDeleted)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new KeyNotFoundException("Không tìm thấy khách hàng.");
-        var items = order.Items.Select(x => new InvoiceItem
-        {
-            ItemType = x.ItemType,
-            ReferenceId = x.PartId ?? x.ServiceId,
-            Description = x.Description,
-            Quantity = x.Quantity,
-            UnitPrice = x.UnitPrice,
-            DiscountAmount = x.DiscountAmount,
-            TaxRate = request.TaxRate,
-            LineTotal = x.LineTotal
-        }).ToList();
-        var subtotal = items.Sum(x => x.Quantity * x.UnitPrice);
-        var discount = items.Sum(x => x.DiscountAmount) + request.DiscountAmount;
-        var beforeTax = Math.Max(0, subtotal - discount);
-        var taxAmount = decimal.Round(beforeTax * request.TaxRate / 100m, 0, MidpointRounding.AwayFromZero);
-        var total = beforeTax + taxAmount;
-        var invoice = new Invoice
-        {
-            Code = await sequences.NextAsync("invoice", "INV", cancellationToken),
-            RepairOrderId = order.Id,
-            CustomerId = customer.Id,
-            Subtotal = subtotal,
-            DiscountAmount = discount,
-            TaxRate = request.TaxRate,
-            TaxAmount = taxAmount,
-            TotalAmount = total,
-            RemainingAmount = total,
-            CustomerName = customer.FullName,
-            CustomerPhone = customer.Phone,
-            CustomerAddress = customer.Address,
-            CustomerTaxCode = customer.TaxCode,
-            CreatedBy = userId,
-            Notes = request.Notes?.Trim(),
-            Items = items
-        };
-        await context.Collection<Invoice>().InsertOneAsync(invoice, cancellationToken: cancellationToken);
-        await orders.UpdateOneAsync(
-            x => x.Id == order.Id,
-            Builders<RepairOrder>.Update
-                .Set(x => x.FinalTotal, total)
-                .Set(x => x.UpdatedAt, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
-        return invoice;
+        return createdInvoice!;
     }
 
     public async Task<Invoice> AddPaymentAsync(
@@ -244,6 +340,10 @@ public sealed class InvoiceService(
             {
                 return invoice;
             }
+            if (invoice.PaidAmount <= 0)
+            {
+                throw new InvalidOperationException("Hóa đơn chưa thanh toán; hãy dùng chức năng hủy hóa đơn.");
+            }
 
             await loyalty.ReverseInvoiceWithinTransactionAsync(
                 session,
@@ -292,5 +392,107 @@ public sealed class InvoiceService(
 
             throw;
         }
+    }
+
+    public async Task<Invoice> CancelAsync(
+        string invoiceId,
+        CancelInvoiceRequest request,
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        using var session = await context.Client.StartSessionAsync(cancellationToken: cancellationToken);
+        session.StartTransaction();
+        try
+        {
+            var invoices = context.Collection<Invoice>();
+            var invoice = await invoices.Find(session, x => x.Id == invoiceId && !x.IsDeleted)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new KeyNotFoundException("Không tìm thấy hóa đơn.");
+            if (invoice.PaymentStatus == InvoicePaymentStatus.Cancelled) return invoice;
+            if (invoice.PaymentStatus != InvoicePaymentStatus.Unpaid || invoice.PaidAmount > 0)
+                throw new InvalidOperationException("Chỉ có thể hủy hóa đơn chưa thanh toán.");
+
+            if (!string.IsNullOrWhiteSpace(invoice.CouponId) && !invoice.CouponUsageReturned)
+            {
+                await context.Collection<Coupon>().UpdateOneAsync(
+                    session,
+                    x => x.Id == invoice.CouponId && x.UsedCount > 0,
+                    Builders<Coupon>.Update
+                        .Inc(x => x.UsedCount, -1)
+                        .Set(x => x.UpdatedAt, DateTime.UtcNow),
+                    cancellationToken: cancellationToken);
+                invoice.CouponUsageReturned = true;
+            }
+
+            invoice.PaymentStatus = InvoicePaymentStatus.Cancelled;
+            invoice.RemainingAmount = 0;
+            invoice.UpdatedAt = DateTime.UtcNow;
+            invoice.Notes = string.Join(
+                Environment.NewLine,
+                new[] { invoice.Notes, $"Hủy bởi {userId}: {request.Reason.Trim()}" }
+                    .Where(x => !string.IsNullOrWhiteSpace(x)));
+            await invoices.ReplaceOneAsync(
+                session,
+                x => x.Id == invoice.Id,
+                invoice,
+                cancellationToken: cancellationToken);
+
+            var orders = context.Collection<RepairOrder>();
+            var order = await orders.Find(session, x => x.Id == invoice.RepairOrderId && !x.IsDeleted)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (order is not null && order.Status == RepairOrderStatus.Completed)
+            {
+                order.Status = RepairOrderStatus.Repairing;
+                order.FinalTotal = order.EstimatedTotal;
+                order.UpdatedAt = DateTime.UtcNow;
+                order.StatusHistory.Add(new RepairStatusHistory
+                {
+                    FromStatus = RepairOrderStatus.Completed,
+                    ToStatus = RepairOrderStatus.Repairing,
+                    ChangedBy = userId,
+                    Note = $"Mở lại do hủy hóa đơn {invoice.Code}."
+                });
+                await orders.ReplaceOneAsync(
+                    session,
+                    x => x.Id == order.Id,
+                    order,
+                    cancellationToken: cancellationToken);
+            }
+            await session.CommitTransactionAsync(cancellationToken);
+            return invoice;
+        }
+        catch
+        {
+            if (session.IsInTransaction) await session.AbortTransactionAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static void ValidateCoupon(Coupon coupon, string customerId, decimal orderValue)
+    {
+        var now = DateTime.UtcNow;
+        if (!coupon.IsActive) throw new InvalidOperationException("Coupon đang tạm khóa.");
+        if (coupon.StartAt.HasValue && now < coupon.StartAt.Value)
+            throw new InvalidOperationException("Coupon chưa đến thời gian áp dụng.");
+        if (coupon.EndAt.HasValue && now > coupon.EndAt.Value)
+            throw new InvalidOperationException("Coupon đã hết hạn.");
+        if (coupon.UsageLimit.HasValue && coupon.UsedCount >= coupon.UsageLimit.Value)
+            throw new InvalidOperationException("Coupon đã hết lượt sử dụng.");
+        if (coupon.Audience == CouponAudience.MinimumOrder
+            && orderValue < coupon.MinimumOrderAmount)
+            throw new InvalidOperationException($"Coupon yêu cầu đơn hàng tối thiểu {coupon.MinimumOrderAmount:N0} VND.");
+        if (coupon.Audience == CouponAudience.SpecificCustomers
+            && !coupon.CustomerIds.Contains(customerId))
+            throw new InvalidOperationException("Coupon không áp dụng cho khách hàng này.");
+    }
+
+    private static decimal CalculateDiscount(decimal amount, DiscountType type, decimal value)
+    {
+        if (value < 0 || type == DiscountType.Percentage && value > 100)
+            throw new InvalidOperationException("Giá trị giảm giá không hợp lệ.");
+        var discount = type == DiscountType.Percentage
+            ? decimal.Round(amount * value / 100m, 0, MidpointRounding.AwayFromZero)
+            : value;
+        return Math.Min(amount, discount);
     }
 }

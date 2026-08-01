@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { Edit3, Plus, Search, UserRound, Users } from '@lucide/vue'
+import { Edit3, Plus, Search, Trash2, UserRound, Users } from '@lucide/vue'
 import type { Customer, PagedResult } from '~/types/api'
 import { formatNumber } from '~/utils/format'
 
 const api = useApi()
+const auth = useAuth()
 const toast = useToast()
+const isEmployee = computed(() => auth.hasAnyRole('Employee'))
 const result = ref<PagedResult<Customer>>({ items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 })
 const loading = ref(true)
 const saving = ref(false)
@@ -86,6 +88,14 @@ const save = async () => {
   }
 }
 
+const remove = async () => {
+  if (!editingId.value || !confirm(`Xóa khách hàng ${form.fullName}?`)) return
+  await api.request(`/customers/${editingId.value}`, { method: 'DELETE' })
+  toast.success('Đã xóa khách hàng', form.fullName)
+  modalOpen.value = false
+  await load(result.value.page)
+}
+
 onMounted(() => load(1))
 </script>
 
@@ -147,9 +157,9 @@ onMounted(() => load(1))
                 </AppBadge>
               </td>
               <td class="text-right">
-                <button class="btn btn-secondary btn-sm" @click="openEdit(customer)">
+                <NuxtLink class="btn btn-secondary btn-sm" :to="`/customers/${customer.id}`">
                   <Edit3 :size="14" /> Sửa
-                </button>
+                </NuxtLink>
               </td>
             </tr>
           </tbody>
@@ -219,6 +229,7 @@ onMounted(() => load(1))
         </label>
       </form>
       <template #footer>
+        <button v-if="editingId && !isEmployee" class="btn btn-secondary danger-button" :disabled="saving" @click="remove"><Trash2 :size="15" /> Xóa</button>
         <button class="btn btn-secondary" @click="modalOpen = false">Hủy</button>
         <button class="btn btn-primary" form="customer-form" :disabled="saving">
           {{ saving ? 'Đang lưu...' : 'Lưu khách hàng' }}

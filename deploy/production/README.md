@@ -30,3 +30,17 @@ HTTPS:
 The deployment builds a self-contained Linux API, generates the Nuxt static
 site, uploads both archives, switches `/home/MotoCare/current` atomically and
 rolls back the symlink if the API health check fails.
+
+## Internal demo-data tool
+
+The destructive demo-data tool is disabled by default in Production. During
+the internal demo phase, add the following line to
+`/home/MotoCare/shared/motocare.env`, then restart `motocare.service`:
+
+```dotenv
+DemoData__Enabled=true
+```
+
+Before customer handover, remove that line or set it to `false` and restart the
+service. The **Settings** navigation item and the reset operation will then be
+unavailable; the API also rejects direct reset requests.

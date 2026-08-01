@@ -10,7 +10,6 @@ namespace MotoCare.Api.Services;
 public sealed class RepairOrderService(
     MongoDbContext context,
     SequenceService sequences,
-    InventoryService inventory,
     IHubContext<NotificationHub> hub)
 {
     private static readonly IReadOnlyDictionary<RepairOrderStatus, RepairOrderStatus[]> AllowedTransitions =
@@ -23,11 +22,10 @@ public sealed class RepairOrderService(
             [RepairOrderStatus.AwaitingApproval] =
                 [RepairOrderStatus.Repairing, RepairOrderStatus.Cancelled],
             [RepairOrderStatus.Repairing] =
-                [RepairOrderStatus.AwaitingParts, RepairOrderStatus.Completed, RepairOrderStatus.Cancelled],
+                [RepairOrderStatus.AwaitingParts, RepairOrderStatus.Cancelled],
             [RepairOrderStatus.AwaitingParts] =
                 [RepairOrderStatus.Repairing, RepairOrderStatus.Cancelled],
-            [RepairOrderStatus.Completed] =
-                [RepairOrderStatus.Delivered, RepairOrderStatus.Repairing],
+            [RepairOrderStatus.Completed] = [RepairOrderStatus.Delivered],
             [RepairOrderStatus.Delivered] = [],
             [RepairOrderStatus.Cancelled] = []
         };
@@ -50,6 +48,7 @@ public sealed class RepairOrderService(
             throw new InvalidOperationException("Xe không thuộc khách hàng đã chọn.");
         }
 
+        var conditionImages = ValidateConditionImages(request.VehicleConditionImages);
         var order = new RepairOrder
         {
             Code = await sequences.NextAsync("repair-order", "RO", cancellationToken),
@@ -59,6 +58,7 @@ public sealed class RepairOrderService(
             OdometerIn = request.OdometerIn,
             FuelLevel = request.FuelLevel?.Trim(),
             VehicleCondition = request.VehicleCondition.Trim(),
+            VehicleConditionImages = conditionImages,
             CustomerRequest = request.CustomerRequest.Trim(),
             Diagnosis = request.Diagnosis?.Trim(),
             InternalNotes = request.InternalNotes?.Trim(),
@@ -76,7 +76,95 @@ public sealed class RepairOrderService(
             ]
         };
         await context.Collection<RepairOrder>().InsertOneAsync(order, cancellationToken: cancellationToken);
+        if (request.OdometerIn.HasValue && vehicle.Odometer != request.OdometerIn)
+        {
+            vehicle.Odometer = request.OdometerIn;
+            vehicle.UpdatedAt = DateTime.UtcNow;
+            await context.Collection<Vehicle>().ReplaceOneAsync(
+                x => x.Id == vehicle.Id && !x.IsDeleted,
+                vehicle,
+                cancellationToken: cancellationToken);
+        }
         return order;
+    }
+
+    public async Task<RepairOrder> UpdateConditionImagesAsync(
+        string orderId,
+        IReadOnlyList<string> images,
+        CancellationToken cancellationToken = default)
+    {
+        var orders = context.Collection<RepairOrder>();
+        var order = await orders.Find(x => x.Id == orderId && !x.IsDeleted)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
+        if (order.Status is RepairOrderStatus.Completed or RepairOrderStatus.Delivered or RepairOrderStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Không thể cập nhật ảnh của phiếu đã hoàn tất, đã giao hoặc đã hủy.");
+        }
+
+        order.VehicleConditionImages = ValidateConditionImages(images);
+        order.UpdatedAt = DateTime.UtcNow;
+        await orders.ReplaceOneAsync(
+            x => x.Id == orderId && !x.IsDeleted,
+            order,
+            cancellationToken: cancellationToken);
+        return order;
+    }
+
+    public async Task<RepairOrder> UpdateOdometerAsync(
+        string orderId,
+        int odometerIn,
+        CancellationToken cancellationToken = default)
+    {
+        var orders = context.Collection<RepairOrder>();
+        var order = await orders.Find(x => x.Id == orderId && !x.IsDeleted)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
+        if (order.Status is RepairOrderStatus.Completed or RepairOrderStatus.Delivered or RepairOrderStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Không thể cập nhật ODO của phiếu đã hoàn tất, đã giao hoặc đã hủy.");
+        }
+
+        var vehicle = await context.Collection<Vehicle>()
+            .Find(x => x.Id == order.VehicleId && !x.IsDeleted)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy xe của phiếu sửa chữa.");
+        order.OdometerIn = odometerIn;
+        order.UpdatedAt = DateTime.UtcNow;
+        vehicle.Odometer = odometerIn;
+        vehicle.UpdatedAt = DateTime.UtcNow;
+        await orders.ReplaceOneAsync(
+            x => x.Id == orderId && !x.IsDeleted,
+            order,
+            cancellationToken: cancellationToken);
+        await context.Collection<Vehicle>().ReplaceOneAsync(
+            x => x.Id == vehicle.Id && !x.IsDeleted,
+            vehicle,
+            cancellationToken: cancellationToken);
+        return order;
+    }
+
+    private static List<string> ValidateConditionImages(IReadOnlyList<string>? images)
+    {
+        var normalized = images?
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .ToList() ?? [];
+        if (normalized.Count > 10)
+        {
+            throw new InvalidOperationException("Chỉ được lưu tối đa 10 ảnh tình trạng xe.");
+        }
+        if (normalized.Any(x => !x.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase)
+            && !x.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Ảnh tình trạng xe không hợp lệ.");
+        }
+        if (normalized.Any(x => x.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)
+            && x.Length > 3_000_000))
+        {
+            throw new InvalidOperationException("Mỗi ảnh tình trạng xe tối đa 2 MB.");
+        }
+        return normalized;
     }
 
     public async Task<RepairOrder> AddItemAsync(
@@ -88,12 +176,13 @@ public sealed class RepairOrderService(
         var order = await orders.Find(x => x.Id == orderId && !x.IsDeleted)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
-        if (order.Status is RepairOrderStatus.Delivered or RepairOrderStatus.Cancelled)
+        if (order.Status is RepairOrderStatus.Completed or RepairOrderStatus.Delivered or RepairOrderStatus.Cancelled)
         {
-            throw new InvalidOperationException("Không thể sửa hạng mục của phiếu đã giao hoặc đã hủy.");
+            throw new InvalidOperationException("Không thể thêm hạng mục vào phiếu đã hoàn tất, đã giao hoặc đã hủy.");
         }
 
         var unitPrice = request.UnitPrice;
+        var quantity = request.ItemType == RepairItemType.Service ? 1 : request.Quantity;
         if (request.ItemType == RepairItemType.Part)
         {
             if (string.IsNullOrWhiteSpace(request.PartId))
@@ -110,17 +199,37 @@ public sealed class RepairOrderService(
                 unitPrice = part.SalePrice;
             }
         }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(request.ServiceId))
+            {
+                throw new InvalidOperationException("Hạng mục dịch vụ phải được chọn từ danh mục dịch vụ.");
+            }
 
+            var service = await context.Collection<ServiceCategory>()
+                .Find(x => x.Id == request.ServiceId && !x.IsDeleted && x.IsActive)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Dịch vụ không tồn tại hoặc đã ngừng hoạt động.");
+            if (unitPrice == 0)
+            {
+                unitPrice = service.DefaultPrice;
+            }
+        }
+
+        var discountValue = request.DiscountValue > 0 ? request.DiscountValue : request.DiscountAmount;
+        var discountAmount = CalculateDiscount(quantity * unitPrice, request.DiscountType, discountValue);
         var item = new RepairOrderItem
         {
             ItemType = request.ItemType,
             ServiceId = request.ServiceId,
             PartId = request.PartId,
             Description = request.Description.Trim(),
-            Quantity = request.Quantity,
+            Quantity = quantity,
             UnitPrice = unitPrice,
-            DiscountAmount = request.DiscountAmount,
-            LineTotal = Math.Max(0, request.Quantity * unitPrice - request.DiscountAmount),
+            DiscountType = request.DiscountType,
+            DiscountValue = discountValue,
+            DiscountAmount = discountAmount,
+            LineTotal = Math.Max(0, quantity * unitPrice - discountAmount),
             AssignedEmployeeId = request.AssignedEmployeeId,
             TechnicianNotes = request.TechnicianNotes?.Trim()
         };
@@ -134,6 +243,132 @@ public sealed class RepairOrderService(
             await NotifyAssignment(order, item, cancellationToken);
         }
 
+        return order;
+    }
+
+    public async Task<RepairOrder> UpdateItemAsync(
+        string orderId,
+        string itemId,
+        UpdateRepairOrderItemRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var orders = context.Collection<RepairOrder>();
+        var order = await orders.Find(x => x.Id == orderId && !x.IsDeleted)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
+        if (order.Status is RepairOrderStatus.Completed or RepairOrderStatus.Delivered or RepairOrderStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Không thể sửa hạng mục của phiếu đã hoàn tất, đã giao hoặc đã hủy.");
+        }
+
+        var item = order.Items.FirstOrDefault(x => x.Id == itemId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hạng mục sửa chữa.");
+        if (item.InventoryIssued)
+        {
+            throw new InvalidOperationException("Không thể cập nhật phụ tùng đã xuất kho.");
+        }
+
+        var unitPrice = request.UnitPrice;
+        var quantity = request.ItemType == RepairItemType.Service ? 1 : request.Quantity;
+        if (request.ItemType == RepairItemType.Part)
+        {
+            if (string.IsNullOrWhiteSpace(request.PartId))
+            {
+                throw new InvalidOperationException("Hạng mục phụ tùng phải có PartId.");
+            }
+
+            var part = await context.Collection<Part>()
+                .Find(x => x.Id == request.PartId && !x.IsDeleted && x.IsActive)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Phụ tùng không tồn tại hoặc đã ngừng bán.");
+            if (unitPrice == 0)
+            {
+                unitPrice = part.SalePrice;
+            }
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(request.ServiceId))
+            {
+                throw new InvalidOperationException("Hạng mục dịch vụ phải được chọn từ danh mục dịch vụ.");
+            }
+
+            var service = await context.Collection<ServiceCategory>()
+                .Find(x => x.Id == request.ServiceId && !x.IsDeleted && x.IsActive)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Dịch vụ không tồn tại hoặc đã ngừng hoạt động.");
+            if (unitPrice == 0)
+            {
+                unitPrice = service.DefaultPrice;
+            }
+        }
+
+        item.ItemType = request.ItemType;
+        item.ServiceId = request.ItemType == RepairItemType.Service ? request.ServiceId : null;
+        item.PartId = request.ItemType == RepairItemType.Part ? request.PartId : null;
+        item.Description = request.Description.Trim();
+        item.Quantity = quantity;
+        item.UnitPrice = unitPrice;
+        var discountValue = request.DiscountValue > 0 ? request.DiscountValue : request.DiscountAmount;
+        var discountAmount = CalculateDiscount(quantity * unitPrice, request.DiscountType, discountValue);
+        item.DiscountType = request.DiscountType;
+        item.DiscountValue = discountValue;
+        item.DiscountAmount = discountAmount;
+        item.LineTotal = Math.Max(0, quantity * unitPrice - discountAmount);
+        item.AssignedEmployeeId = request.AssignedEmployeeId;
+        item.TechnicianNotes = request.TechnicianNotes?.Trim();
+
+        Recalculate(order);
+        order.UpdatedAt = DateTime.UtcNow;
+        await orders.ReplaceOneAsync(x => x.Id == order.Id, order, cancellationToken: cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(item.AssignedEmployeeId))
+        {
+            await NotifyAssignment(order, item, cancellationToken);
+        }
+
+        return order;
+    }
+
+    public async Task<RepairOrder> DeleteItemAsync(
+        string orderId,
+        string itemId,
+        CancellationToken cancellationToken = default)
+    {
+        var orders = context.Collection<RepairOrder>();
+        var order = await orders.Find(x => x.Id == orderId && !x.IsDeleted)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
+        if (order.Status is RepairOrderStatus.Completed or RepairOrderStatus.Delivered or RepairOrderStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Không thể xóa hạng mục của phiếu đã hoàn tất, đã giao hoặc đã hủy.");
+        }
+
+        var item = order.Items.FirstOrDefault(x => x.Id == itemId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hạng mục sửa chữa.");
+        if (item.InventoryIssued)
+        {
+            throw new InvalidOperationException("Không thể xóa phụ tùng đã xuất kho.");
+        }
+
+        var hasActiveInvoice = await context.Collection<Invoice>()
+            .Find(x => x.RepairOrderId == orderId
+                && !x.IsDeleted
+                && x.PaymentStatus != InvoicePaymentStatus.Cancelled)
+            .AnyAsync(cancellationToken);
+        if (hasActiveInvoice)
+        {
+            throw new InvalidOperationException(
+                "Không thể xóa hạng mục khi phiếu sửa chữa đang có hóa đơn còn hiệu lực.");
+        }
+
+        order.Items.Remove(item);
+        Recalculate(order);
+        order.UpdatedAt = DateTime.UtcNow;
+        await orders.ReplaceOneAsync(
+            x => x.Id == order.Id && !x.IsDeleted,
+            order,
+            cancellationToken: cancellationToken);
         return order;
     }
 
@@ -178,7 +413,7 @@ public sealed class RepairOrderService(
 
         var notification = new Notification
         {
-            Role = SecurityRoles.Receptionist,
+            Role = SecurityRoles.Employee,
             Type = "RepairStatusChanged",
             Title = $"Phiếu {order.Code} đổi trạng thái",
             Message = $"{previous} → {request.Status}",
@@ -186,7 +421,7 @@ public sealed class RepairOrderService(
             ReferenceId = order.Id
         };
         await context.Collection<Notification>().InsertOneAsync(notification, cancellationToken: cancellationToken);
-        await hub.Clients.Group($"role:{SecurityRoles.Receptionist}")
+        await hub.Clients.Group($"role:{SecurityRoles.Employee}")
             .SendAsync("notification", notification, cancellationToken);
         return order;
     }
@@ -201,6 +436,11 @@ public sealed class RepairOrderService(
         var order = await orders.Find(x => x.Id == orderId && !x.IsDeleted)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
+        if (order.Status is RepairOrderStatus.Completed or RepairOrderStatus.Delivered or RepairOrderStatus.Cancelled)
+        {
+            throw new InvalidOperationException(
+                "Không thể cập nhật tiến độ của phiếu đã hoàn tất, đã giao hoặc đã hủy.");
+        }
         var item = order.Items.FirstOrDefault(x => x.Id == itemId)
             ?? throw new KeyNotFoundException("Không tìm thấy hạng mục sửa chữa.");
 
@@ -221,73 +461,6 @@ public sealed class RepairOrderService(
         return order;
     }
 
-    public async Task<RepairOrder> IssuePartsAsync(
-        string orderId,
-        string userId,
-        CancellationToken cancellationToken = default)
-    {
-        using var session = await context.Client.StartSessionAsync(cancellationToken: cancellationToken);
-        session.StartTransaction();
-        var changedParts = new List<Part>();
-        RepairOrder order;
-        try
-        {
-            var orders = context.Collection<RepairOrder>();
-            order = await orders.Find(session, x => x.Id == orderId && !x.IsDeleted)
-                .FirstOrDefaultAsync(cancellationToken)
-                ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
-            if (order.Status is RepairOrderStatus.Delivered or RepairOrderStatus.Cancelled)
-            {
-                throw new InvalidOperationException("Không thể xuất kho cho phiếu đã giao hoặc đã hủy.");
-            }
-
-            foreach (var item in order.Items.Where(x =>
-                         x.ItemType == RepairItemType.Part
-                         && !x.InventoryIssued
-                         && !string.IsNullOrWhiteSpace(x.PartId)))
-            {
-                var result = await inventory.MoveWithinTransactionAsync(
-                    session,
-                    new StockMovementRequest(
-                        item.PartId!,
-                        InventoryTransactionType.RepairIssue,
-                        item.Quantity,
-                        0,
-                        nameof(RepairOrder),
-                        order.Id,
-                        $"Xuất cho phiếu {order.Code}"),
-                    userId,
-                    cancellationToken);
-                changedParts.Add(result.Part);
-                item.InventoryIssued = true;
-            }
-
-            order.UpdatedAt = DateTime.UtcNow;
-            await orders.ReplaceOneAsync(
-                session,
-                x => x.Id == order.Id,
-                order,
-                cancellationToken: cancellationToken);
-            await session.CommitTransactionAsync(cancellationToken);
-        }
-        catch
-        {
-            if (session.IsInTransaction)
-            {
-                await session.AbortTransactionAsync(cancellationToken);
-            }
-
-            throw;
-        }
-
-        foreach (var part in changedParts)
-        {
-            await inventory.NotifyLowStockAsync(part, cancellationToken);
-        }
-
-        return order;
-    }
-
     private async Task NotifyAssignment(
         RepairOrder order,
         RepairOrderItem item,
@@ -299,7 +472,7 @@ public sealed class RepairOrderService(
         var notification = new Notification
         {
             UserId = user?.Id,
-            Role = user is null ? SecurityRoles.Technician : null,
+            Role = user is null ? SecurityRoles.Employee : null,
             Type = "RepairAssignment",
             Title = $"Công việc mới - {order.Code}",
             Message = item.Description,
@@ -313,7 +486,7 @@ public sealed class RepairOrderService(
         }
         else
         {
-            await hub.Clients.Group($"role:{SecurityRoles.Technician}")
+            await hub.Clients.Group($"role:{SecurityRoles.Employee}")
                 .SendAsync("notification", notification, cancellationToken);
         }
     }
@@ -322,5 +495,18 @@ public sealed class RepairOrderService(
     {
         order.EstimatedTotal = order.Items.Sum(x => x.LineTotal);
         order.FinalTotal = Math.Max(0, order.EstimatedTotal - order.DiscountAmount);
+    }
+
+    private static decimal CalculateDiscount(decimal gross, DiscountType type, decimal value)
+    {
+        if (value < 0 || (type == DiscountType.Percentage && value > 100))
+        {
+            throw new InvalidOperationException("Giá trị giảm giá không hợp lệ.");
+        }
+
+        var discount = type == DiscountType.Percentage
+            ? decimal.Round(gross * value / 100m, 0, MidpointRounding.AwayFromZero)
+            : value;
+        return Math.Min(gross, discount);
     }
 }

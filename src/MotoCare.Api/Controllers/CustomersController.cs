@@ -22,6 +22,7 @@ public sealed class CustomersController(
         [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] bool includeDeleted = false,
         CancellationToken cancellationToken = default)
     {
         var filter = Builders<Customer>.Filter.Empty;
@@ -41,13 +42,17 @@ public sealed class CustomersController(
             filter,
             page,
             pageSize,
-            cancellationToken: cancellationToken)));
+            cancellationToken: cancellationToken,
+            includeDeleted: includeDeleted)));
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetById(string id, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetById(
+        string id,
+        [FromQuery] bool includeDeleted,
+        CancellationToken cancellationToken)
     {
-        var customer = await repository.GetByIdAsync(id, cancellationToken);
+        var customer = await repository.GetByIdAsync(id, cancellationToken, includeDeleted);
         return customer is null
             ? NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy khách hàng."))
             : Ok(ApiEnvelope.Ok(customer));

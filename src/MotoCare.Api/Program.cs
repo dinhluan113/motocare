@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi.Models;
 using MotoCare.Api.Hubs;
 using MotoCare.Api.Infrastructure;
@@ -28,6 +29,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 builder.Services.Configure<MongoOptions>(builder.Configuration.GetSection(MongoOptions.SectionName));
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+builder.Services.Configure<DemoDataOptions>(builder.Configuration.GetSection(DemoDataOptions.SectionName));
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient("RestCountries", client =>
 {
@@ -98,13 +100,17 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<MongoDbContext>();
 builder.Services.AddScoped(typeof(IMongoRepository<>), typeof(MongoRepository<>));
 builder.Services.AddScoped<JwtTokenService>();
+builder.Services.AddScoped<AutoCodeService>();
 builder.Services.AddScoped<InventoryService>();
+builder.Services.AddScoped<ExpenseService>();
 builder.Services.AddScoped<LoyaltyService>();
 builder.Services.AddScoped<RepairOrderService>();
 builder.Services.AddScoped<InvoiceService>();
 builder.Services.AddScoped<ReportsService>();
 builder.Services.AddScoped<ExcelExportService>();
+builder.Services.AddScoped<DemoDataService>();
 builder.Services.AddScoped<LocationService>();
+builder.Services.AddSingleton<ImageStorageService>();
 builder.Services.AddSingleton<SequenceService>();
 builder.Services.AddHostedService<MongoDbInitializer>();
 
@@ -164,9 +170,16 @@ app.UseForwardedHeaders();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
+var webRootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(Path.Combine(webRootPath, "uploads"));
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(webRootPath)
+});
 app.UseHttpsRedirection();
 app.UseCors("Cms");
 app.UseAuthentication();
+app.UseMiddleware<RoleAccessMiddleware>();
 app.UseMiddleware<AuditLoggingMiddleware>();
 app.UseAuthorization();
 

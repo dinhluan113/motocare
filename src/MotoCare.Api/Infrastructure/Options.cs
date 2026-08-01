@@ -18,3 +18,12 @@ public sealed class JwtOptions
     public string SigningKey { get; init; } = string.Empty;
     public int AccessTokenMinutes { get; init; } = 480;
 }
+
+public sealed class DemoDataOptions
+{
+    public const string SectionName = "DemoData";
+
+    public bool Enabled { get; init; }
+    public string ConfirmationPhrase { get; init; } = "TAO LAI DU LIEU MAU";
+    public string DemoPassword { get; init; } = "Demo@123456";
+}

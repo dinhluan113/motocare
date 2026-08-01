@@ -39,4 +39,5 @@ onMounted(load)
 .status-select { width: 220px; }
 .cell-link { color: var(--blue); font-weight: 800; }
 .debt { color: var(--red); font-weight: 800; }
+@media (max-width: 560px) { .status-select { width: 100%; }.card-header .inline { width: 100%; }.card-header .field-label { flex: 0 0 100%; } }
 </style>

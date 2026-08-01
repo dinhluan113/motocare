@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Bike, ClipboardList, Plus, Star } from '@lucide/vue'
+import { ArrowLeft, Bike, ClipboardList, Pencil, Plus, Star, Trash2 } from '@lucide/vue'
 import type {
   Customer,
   LoyaltyAccount,
@@ -13,7 +13,9 @@ import { formatCurrency, formatDate, formatNumber, statusLabel, statusTone } fro
 
 const route = useRoute()
 const api = useApi()
+const auth = useAuth()
 const toast = useToast()
+const isEmployee = computed(() => auth.hasAnyRole('Employee'))
 const customer = ref<Customer>()
 const vehicles = ref<Vehicle[]>([])
 const history = ref<RepairOrder[]>([])
@@ -22,6 +24,7 @@ const models = ref<VehicleModel[]>([])
 const brands = ref<VehicleBrand[]>([])
 const loading = ref(true)
 const modalOpen = ref(false)
+const editingVehicle = ref<Vehicle>()
 const saving = ref(false)
 const vehicleForm = reactive({
   vehicleModelId: '', licensePlate: '', frameNumber: '', engineNumber: '',
@@ -39,6 +42,27 @@ const modelOptions = computed(() => models.value.map(model => ({
   code: model.id,
   name: modelName(model.id)
 })))
+
+const openVehicleForm = (vehicle?: Vehicle) => {
+  editingVehicle.value = vehicle
+  Object.assign(vehicleForm, vehicle ? {
+    vehicleModelId: vehicle.vehicleModelId,
+    licensePlate: vehicle.licensePlate,
+    frameNumber: vehicle.frameNumber || '',
+    engineNumber: vehicle.engineNumber || '',
+    manufactureYear: vehicle.manufactureYear || new Date().getFullYear(),
+    color: vehicle.color || '',
+    odometer: vehicle.odometer || 0,
+    purchaseDate: vehicle.purchaseDate?.slice(0, 10) || '',
+    notes: vehicle.notes || '',
+    isActive: vehicle.isActive
+  } : {
+    vehicleModelId: '', licensePlate: '', frameNumber: '', engineNumber: '',
+    manufactureYear: new Date().getFullYear(), color: '', odometer: 0,
+    purchaseDate: '', notes: '', isActive: true
+  })
+  modalOpen.value = true
+}
 
 const load = async () => {
   loading.value = true
@@ -63,8 +87,8 @@ const load = async () => {
 const saveVehicle = async () => {
   saving.value = true
   try {
-    await api.request('/vehicles', {
-      method: 'POST',
+    await api.request(`/vehicles${editingVehicle.value ? `/${editingVehicle.value.id}` : ''}`, {
+      method: editingVehicle.value ? 'PUT' : 'POST',
       body: {
         ...vehicleForm,
         customerId: customerId.value,
@@ -73,11 +97,18 @@ const saveVehicle = async () => {
         engineNumber: vehicleForm.engineNumber || null
       }
     })
-    toast.success('Đã thêm xe', vehicleForm.licensePlate.toUpperCase())
+    toast.success(editingVehicle.value ? 'Đã cập nhật xe' : 'Đã thêm xe', vehicleForm.licensePlate.toUpperCase())
     modalOpen.value = false
     const page = await api.request<PagedResult<Vehicle>>('/vehicles', { query: { customerId: customerId.value, pageSize: 100 } })
     vehicles.value = page.items
   } finally { saving.value = false }
+}
+
+const removeVehicle = async (vehicle: Vehicle) => {
+  if (!confirm(`Xóa xe ${vehicle.licensePlate}?`)) return
+  await api.request(`/vehicles/${vehicle.id}`, { method: 'DELETE' })
+  toast.success('Đã xóa xe', vehicle.licensePlate)
+  vehicles.value = vehicles.value.filter(x => x.id !== vehicle.id)
 }
 
 onMounted(load)
@@ -95,7 +126,7 @@ onMounted(load)
         <p class="page-subtitle mono">{{ customer.code }} · {{ customer.phone }} · {{ customer.email || 'Chưa có email' }}</p>
       </div>
       <div class="page-actions">
-        <button class="btn btn-secondary" @click="modalOpen = true"><Plus :size="17" /> Thêm xe</button>
+        <button class="btn btn-secondary" @click="openVehicleForm()"><Plus :size="17" /> Thêm xe</button>
         <NuxtLink class="btn btn-accent" :to="{ path: '/repair-orders/new', query: { customerId } }"><ClipboardList :size="17" /> Tạo phiếu sửa</NuxtLink>
       </div>
     </div>
@@ -138,7 +169,7 @@ onMounted(load)
             <span>{{ modelName(vehicle.vehicleModelId) }} · {{ vehicle.manufactureYear || '—' }}</span>
             <small>Số máy: {{ vehicle.engineNumber || '—' }} · ODO: {{ formatNumber(vehicle.odometer || 0) }} km</small>
           </div>
-          <NuxtLink class="btn btn-secondary btn-sm" :to="{ path: '/repair-orders/new', query: { customerId, vehicleId: vehicle.id } }">Tiếp nhận</NuxtLink>
+          <div class="inline"><button class="icon-btn" title="Cập nhật xe" @click="openVehicleForm(vehicle)"><Pencil :size="15" /></button><button v-if="!isEmployee" class="icon-btn danger-button" title="Xóa xe" @click="removeVehicle(vehicle)"><Trash2 :size="15" /></button><NuxtLink class="btn btn-secondary btn-sm" :to="{ path: '/repair-orders/new', query: { customerId, vehicleId: vehicle.id } }">Tiếp nhận</NuxtLink></div>
         </article>
       </div>
       <AppEmpty v-else :icon="Bike" title="Khách hàng chưa có xe" message="Thêm phương tiện để có thể tạo phiếu sửa chữa." />
@@ -155,7 +186,7 @@ onMounted(load)
       </div>
     </section>
 
-    <AppModal :open="modalOpen" title="Thêm xe cho khách hàng" width="720px" @close="modalOpen = false">
+    <AppModal :open="modalOpen" :title="editingVehicle ? 'Cập nhật thông tin xe' : 'Thêm xe cho khách hàng'" width="720px" @close="modalOpen = false">
       <form id="vehicle-form" class="form-grid" @submit.prevent="saveVehicle">
         <div class="field"><label>Dòng xe *</label><AppSearchSelect v-model="vehicleForm.vehicleModelId" :options="modelOptions" placeholder="Chọn dòng xe" search-placeholder="Tìm hãng hoặc dòng xe..." required :clearable="false" /></div>
         <div class="field"><label>Biển số *</label><input v-model.trim="vehicleForm.licensePlate" class="input" required placeholder="59-A1 123.45" /></div>
@@ -166,8 +197,9 @@ onMounted(load)
         <div class="field"><label>Số km hiện tại</label><AppNumberInput v-model="vehicleForm.odometer" class="input" min="0" /></div>
         <div class="field"><label>Ngày mua</label><input v-model="vehicleForm.purchaseDate" class="input" type="date" /></div>
         <div class="field span-2"><label>Ghi chú</label><textarea v-model="vehicleForm.notes" class="textarea" /></div>
+        <label class="check-row span-2"><input v-model="vehicleForm.isActive" type="checkbox" /> Xe đang hoạt động</label>
       </form>
-      <template #footer><button class="btn btn-secondary" @click="modalOpen = false">Hủy</button><button class="btn btn-primary" form="vehicle-form" :disabled="saving">{{ saving ? 'Đang lưu...' : 'Lưu xe' }}</button></template>
+      <template #footer><button class="btn btn-secondary" @click="modalOpen = false">Hủy</button><button class="btn btn-primary" form="vehicle-form" :disabled="saving">{{ saving ? 'Đang lưu...' : editingVehicle ? 'Cập nhật xe' : 'Lưu xe' }}</button></template>
     </AppModal>
   </div>
 </template>
@@ -195,4 +227,5 @@ onMounted(load)
 .vehicle-card span, .vehicle-card small { margin-top: 2px; color: var(--muted); font-size: 11px; }
 .link { color: var(--blue); }
 @media (max-width: 900px) { .profile-grid, .vehicle-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .detail-grid { grid-template-columns: 1fr; gap: 13px; }.loyalty-card { grid-template-columns: auto 1fr; padding: 18px; }.point-block { grid-column: 1 / -1; text-align: left; }.loyalty-card small { grid-column: 1 / -1; }.vehicle-grid { padding: 14px; }.vehicle-card { grid-template-columns: auto 1fr; }.vehicle-card > .btn,.vehicle-card > .icon-btn { grid-column: 1 / -1; width: 100%; } }
 </style>

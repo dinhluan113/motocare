@@ -7,7 +7,7 @@ namespace MotoCare.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/reports")]
-[Authorize(Roles = SecurityRoles.Management + "," + SecurityRoles.Cashier)]
+[Authorize(Roles = SecurityRoles.Management)]
 public sealed class ReportsController(
     ReportsService reports,
     ExcelExportService excel) : ControllerBase

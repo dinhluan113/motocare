@@ -347,4 +347,21 @@ const submit = async () => {
     font-size: 18px;
   }
 }
+
+@media (max-width: 480px) {
+  .login-panel {
+    align-items: start;
+    padding: max(20px, env(safe-area-inset-top)) 14px max(20px, env(safe-area-inset-bottom));
+  }
+
+  .login-card {
+    gap: 17px;
+    padding: 24px 18px;
+    border-radius: 17px;
+  }
+
+  .login-card h2 {
+    font-size: 1.5rem;
+  }
+}
 </style>

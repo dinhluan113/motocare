@@ -2,13 +2,13 @@ namespace MotoCare.Api.Infrastructure;
 
 public static class SecurityRoles
 {
-    public const string Administrator = "Administrator";
+    public const string Admin = "Admin";
+    public const string LegacyAdministrator = "Administrator";
     public const string Manager = "Manager";
-    public const string Receptionist = "Receptionist";
-    public const string Technician = "Technician";
-    public const string Cashier = "Cashier";
+    public const string Employee = "Employee";
 
-    public const string Management = Administrator + "," + Manager;
-    public const string Operations = Administrator + "," + Manager + "," + Receptionist;
-    public const string Finance = Administrator + "," + Manager + "," + Cashier;
+    public const string Administrators = Admin + "," + LegacyAdministrator;
+    public const string Management = Admin + "," + LegacyAdministrator + "," + Manager;
+    public const string Operations = Admin + "," + LegacyAdministrator + "," + Manager + "," + Employee;
+    public const string Finance = Admin + "," + LegacyAdministrator + "," + Manager;
 }

@@ -50,4 +50,5 @@ onMounted(() => load())
 .compact-select { width: 210px; }
 .cell-link { color: var(--blue); font-weight: 800; }
 .description-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 560px) { .compact-select { width: 100%; }.card-header .inline { width: 100%; }.card-header .field-label { flex: 0 0 100%; } }
 </style>

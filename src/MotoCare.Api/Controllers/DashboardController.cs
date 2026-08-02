@@ -32,12 +32,7 @@ public sealed class DashboardController(
         var completedTask = orders.CountDocumentsAsync(
             x => x.Status == RepairOrderStatus.Completed && !x.IsDeleted,
             cancellationToken: cancellationToken);
-        var overdueTask = orders.CountDocumentsAsync(
-            x => x.ExpectedDeliveryAt < DateTime.UtcNow
-                && x.Status != RepairOrderStatus.Delivered
-                && x.Status != RepairOrderStatus.Cancelled
-                && !x.IsDeleted,
-            cancellationToken: cancellationToken);
+        var overdueOrdersTask = OverdueOrders(cancellationToken);
         var todayInvoicesTask = invoices.Find(x =>
                 x.IssueDate >= today
                 && x.IssueDate < tomorrow
@@ -50,11 +45,12 @@ public sealed class DashboardController(
             repairingTask,
             awaitingPartsTask,
             completedTask,
-            overdueTask,
+            overdueOrdersTask,
             todayInvoicesTask,
             oilChangeAlertsTask);
 
         var todayInvoices = await todayInvoicesTask;
+        var overdueOrders = await overdueOrdersTask;
         return Ok(ApiEnvelope.Ok(new
         {
             repairOrders = new
@@ -62,7 +58,8 @@ public sealed class DashboardController(
                 repairing = await repairingTask,
                 awaitingParts = await awaitingPartsTask,
                 waitingDelivery = await completedTask,
-                overdue = await overdueTask
+                overdue = overdueOrders.Count,
+                overdueItems = overdueOrders
             },
             finance = new
             {
@@ -80,6 +77,54 @@ public sealed class DashboardController(
                 }
             }
         }));
+    }
+
+    private async Task<IReadOnlyList<object>> OverdueOrders(CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var overdueOrders = await context.Collection<RepairOrder>()
+            .Find(x => x.ExpectedDeliveryAt != null
+                && x.ExpectedDeliveryAt < now
+                && x.Status != RepairOrderStatus.Delivered
+                && x.Status != RepairOrderStatus.Cancelled
+                && !x.IsDeleted)
+            .SortBy(x => x.ExpectedDeliveryAt)
+            .ToListAsync(cancellationToken);
+        if (overdueOrders.Count == 0) return [];
+
+        var customerIds = overdueOrders.Select(x => x.CustomerId).Distinct().ToArray();
+        var vehicleIds = overdueOrders.Select(x => x.VehicleId).Distinct().ToArray();
+        var customersTask = context.Collection<Customer>()
+            .Find(x => customerIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        var vehiclesTask = context.Collection<Vehicle>()
+            .Find(x => vehicleIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        await Task.WhenAll(customersTask, vehiclesTask);
+
+        var customerMap = (await customersTask).ToDictionary(x => x.Id);
+        var vehicleMap = (await vehiclesTask).ToDictionary(x => x.Id);
+        return overdueOrders.Select(order =>
+        {
+            customerMap.TryGetValue(order.CustomerId, out var customer);
+            vehicleMap.TryGetValue(order.VehicleId, out var vehicle);
+            var daysOverdue = Math.Max(
+                1,
+                (int)Math.Ceiling((now - order.ExpectedDeliveryAt!.Value).TotalDays));
+            return (object)new
+            {
+                order.Id,
+                order.Code,
+                order.CustomerId,
+                customerName = customer?.FullName ?? "Khách hàng không còn tồn tại",
+                order.VehicleId,
+                licensePlate = vehicle?.LicensePlate ?? "Không xác định",
+                order.ExpectedDeliveryAt,
+                order.Status,
+                order.Priority,
+                daysOverdue
+            };
+        }).ToList();
     }
 
     private async Task<IReadOnlyList<object>> OilChangeAlerts(CancellationToken cancellationToken)

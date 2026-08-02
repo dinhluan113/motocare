@@ -2,6 +2,7 @@
 import {
   AlertTriangle,
   Bike,
+  ChevronRight,
   CircleDollarSign,
   Clock3,
   Droplets,
@@ -19,6 +20,18 @@ interface Dashboard {
     awaitingParts: number
     waitingDelivery: number
     overdue: number
+    overdueItems: Array<{
+      id: string
+      code: string
+      customerId: string
+      customerName: string
+      vehicleId: string
+      licensePlate: string
+      expectedDeliveryAt: string
+      status: RepairOrder['status']
+      priority: RepairOrder['priority']
+      daysOverdue: number
+    }>
   }
   finance: {
     revenueToday: number
@@ -135,6 +148,47 @@ onMounted(load)
         <div>Kiểm tra tiến độ và chủ động thông báo cho khách hàng.</div>
       </div>
     </div>
+
+    <section v-if="dashboard?.repairOrders.overdueItems.length" class="card overdue-card">
+      <header class="card-header overdue-header">
+        <div>
+          <h2 class="card-title">Phiếu sửa chữa quá ngày hẹn</h2>
+          <span class="section-note">Ưu tiên xử lý phiếu trễ lâu nhất và chủ động liên hệ khách hàng</span>
+        </div>
+        <AppBadge tone="danger">{{ dashboard.repairOrders.overdueItems.length }} phiếu</AppBadge>
+      </header>
+      <div class="table-wrap">
+        <table class="data-table overdue-table">
+          <thead>
+            <tr>
+              <th>Mã phiếu</th>
+              <th>Khách hàng / xe</th>
+              <th>Ngày hẹn</th>
+              <th>Quá hẹn</th>
+              <th>Trạng thái</th>
+              <th aria-label="Xem chi tiết" />
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="order in dashboard.repairOrders.overdueItems"
+              :key="order.id"
+              class="overdue-row"
+              tabindex="0"
+              @click="navigateTo(`/repair-orders/${order.id}`)"
+              @keydown.enter="navigateTo(`/repair-orders/${order.id}`)"
+            >
+              <td><NuxtLink class="cell-link mono" :to="`/repair-orders/${order.id}`">{{ order.code }}</NuxtLink></td>
+              <td><strong class="customer-name">{{ order.customerName }}</strong><span class="vehicle-plate mono">{{ order.licensePlate }}</span></td>
+              <td>{{ formatDate(order.expectedDeliveryAt, true) }}</td>
+              <td><AppBadge tone="danger">{{ formatNumber(order.daysOverdue) }} ngày</AppBadge></td>
+              <td><AppBadge :tone="statusTone(order.status)">{{ statusLabel(order.status) }}</AppBadge></td>
+              <td class="detail-cell"><ChevronRight :size="17" /></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <section v-if="dashboard?.maintenance.oilChange.vehicles.length" class="card oil-alert-card">
       <header class="card-header">
@@ -255,6 +309,15 @@ onMounted(load)
 }
 
 .warning-icon { color: var(--amber); }
+.overdue-card { overflow: hidden; border-color: #efcaca; }
+.overdue-header { background: #fffafa; }
+.overdue-table { min-width: 760px; }
+.overdue-row { cursor: pointer; transition: background 140ms ease; }
+.overdue-row:hover,.overdue-row:focus-visible { background: #fff8f8; outline: none; }
+.customer-name,.vehicle-plate { display: block; }
+.customer-name { color: var(--navy-950); font-size: 12px; }
+.vehicle-plate { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.detail-cell { width: 42px; color: var(--muted); text-align: right; }
 .oil-alert-card { overflow: hidden; border-color: #e8c66a; }
 .oil-alert-card .card-title { display: flex; align-items: center; gap: 8px; }
 .oil-alert-card .card-title svg { color: var(--amber); }

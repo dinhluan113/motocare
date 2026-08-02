@@ -23,9 +23,22 @@ const loyalty = ref<{ account: LoyaltyAccount | null, transactions: any[] }>()
 const models = ref<VehicleModel[]>([])
 const brands = ref<VehicleBrand[]>([])
 const loading = ref(true)
+const customerModalOpen = ref(false)
 const modalOpen = ref(false)
 const editingVehicle = ref<Vehicle>()
+const savingCustomer = ref(false)
 const saving = ref(false)
+const customerForm = reactive({
+  fullName: '',
+  phone: '',
+  email: '',
+  addressDetails: emptyAddressDetails(),
+  dateOfBirth: '',
+  gender: '',
+  taxCode: '',
+  notes: '',
+  isActive: true
+})
 const vehicleForm = reactive({
   vehicleModelId: '', licensePlate: '', frameNumber: '', engineNumber: '',
   manufactureYear: new Date().getFullYear(), color: '', odometer: 0,
@@ -42,6 +55,41 @@ const modelOptions = computed(() => models.value.map(model => ({
   code: model.id,
   name: modelName(model.id)
 })))
+
+const openCustomerForm = () => {
+  if (!customer.value) return
+  Object.assign(customerForm, {
+    fullName: customer.value.fullName,
+    phone: customer.value.phone,
+    email: customer.value.email || '',
+    addressDetails: normalizeAddressDetails(customer.value.addressDetails, customer.value.address),
+    dateOfBirth: customer.value.dateOfBirth?.slice(0, 10) || '',
+    gender: customer.value.gender || '',
+    taxCode: customer.value.taxCode || '',
+    notes: customer.value.notes || '',
+    isActive: customer.value.isActive
+  })
+  customerModalOpen.value = true
+}
+
+const saveCustomer = async () => {
+  savingCustomer.value = true
+  try {
+    const updated = await api.request<Customer>(`/customers/${customerId.value}`, {
+      method: 'PUT',
+      body: {
+        ...customerForm,
+        address: formatAddressDetails(customerForm.addressDetails),
+        dateOfBirth: customerForm.dateOfBirth || null
+      }
+    })
+    customer.value = updated
+    customerModalOpen.value = false
+    toast.success('Đã cập nhật khách hàng', `${updated.fullName} đã được lưu.`)
+  } finally {
+    savingCustomer.value = false
+  }
+}
 
 const openVehicleForm = (vehicle?: Vehicle) => {
   editingVehicle.value = vehicle
@@ -126,6 +174,7 @@ onMounted(load)
         <p class="page-subtitle mono">{{ customer.code }} · {{ customer.phone }} · {{ customer.email || 'Chưa có email' }}</p>
       </div>
       <div class="page-actions">
+        <button class="btn btn-secondary" @click="openCustomerForm"><Pencil :size="17" /> Cập nhật</button>
         <button class="btn btn-secondary" @click="openVehicleForm()"><Plus :size="17" /> Thêm xe</button>
         <NuxtLink class="btn btn-accent" :to="{ path: '/repair-orders/new', query: { customerId } }"><ClipboardList :size="17" /> Tạo phiếu sửa</NuxtLink>
       </div>
@@ -185,6 +234,60 @@ onMounted(load)
         <AppEmpty v-else title="Chưa có lịch sử sửa chữa" message="Các phiếu sửa của khách sẽ hiển thị tại đây." />
       </div>
     </section>
+
+    <AppModal
+      :open="customerModalOpen"
+      title="Cập nhật khách hàng"
+      description="Thông tin này được sử dụng trên phiếu sửa chữa, hóa đơn và hồ sơ chăm sóc khách hàng."
+      width="760px"
+      @close="customerModalOpen = false"
+    >
+      <form id="customer-detail-form" class="form-grid" @submit.prevent="saveCustomer">
+        <div class="field">
+          <label>Họ và tên *</label>
+          <input v-model.trim="customerForm.fullName" class="input" required maxlength="150" />
+        </div>
+        <div class="field">
+          <label>Số điện thoại *</label>
+          <input v-model.trim="customerForm.phone" class="input" required maxlength="30" />
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input v-model.trim="customerForm.email" class="input" type="email" maxlength="200" />
+        </div>
+        <div class="field">
+          <label>Mã số thuế</label>
+          <input v-model.trim="customerForm.taxCode" class="input" maxlength="30" />
+        </div>
+        <div class="field">
+          <label>Ngày sinh</label>
+          <input v-model="customerForm.dateOfBirth" class="input" type="date" />
+        </div>
+        <div class="field">
+          <label>Giới tính</label>
+          <select v-model="customerForm.gender" class="select">
+            <option value="">Không khai báo</option>
+            <option value="Male">Nam</option>
+            <option value="Female">Nữ</option>
+            <option value="Other">Khác</option>
+          </select>
+        </div>
+        <AppAddressFields v-model="customerForm.addressDetails" />
+        <div class="field span-2">
+          <label>Ghi chú</label>
+          <textarea v-model.trim="customerForm.notes" class="textarea" maxlength="2000" />
+        </div>
+        <label class="check-row span-2">
+          <input v-model="customerForm.isActive" type="checkbox" /> Hồ sơ đang hoạt động
+        </label>
+      </form>
+      <template #footer>
+        <button class="btn btn-secondary" :disabled="savingCustomer" @click="customerModalOpen = false">Hủy</button>
+        <button class="btn btn-primary" form="customer-detail-form" :disabled="savingCustomer">
+          {{ savingCustomer ? 'Đang lưu...' : 'Lưu thay đổi' }}
+        </button>
+      </template>
+    </AppModal>
 
     <AppModal :open="modalOpen" :title="editingVehicle ? 'Cập nhật thông tin xe' : 'Thêm xe cho khách hàng'" width="720px" @close="modalOpen = false">
       <form id="vehicle-form" class="form-grid" @submit.prevent="saveVehicle">

@@ -98,7 +98,7 @@ onMounted(load)
 
     <AppModal :open="stockModal" :title="`Tồn kho từ ${stock?.name || ''}`" width="760px" @close="stockModal = false">
       <div class="stock-total"><span>Tổng số lượng tồn</span><strong>{{ formatNumber(stock?.totalQuantityOnHand || 0) }}</strong></div>
-      <div class="table-wrap"><table v-if="stock?.items.length" class="data-table"><thead><tr><th>Phụ tùng</th><th class="text-right">Tồn</th><th class="text-right">Giá nhập gần nhất</th><th>Lần nhập gần nhất</th></tr></thead><tbody><tr v-for="item in stock.items" :key="item.partId"><td><div class="cell-main">{{ item.partName }}</div><div class="cell-sub mono">{{ item.partCode }}</div></td><td class="text-right cell-main">{{ formatNumber(item.quantityOnHand) }}</td><td class="text-right">{{ formatCurrency(item.lastUnitCost) }}</td><td>{{ item.lastReceiptAt ? formatDate(item.lastReceiptAt) : '—' }}</td></tr></tbody></table><AppEmpty v-else title="Chưa có tồn kho" message="Nhà cung cấp này chưa có phụ tùng được nhập qua phiếu chi." /></div>
+      <div class="table-wrap"><table v-if="stock?.items.length" class="data-table"><thead><tr><th>Phụ tùng</th><th class="text-right">Tồn</th><th class="text-right">Giá nhập gần nhất</th><th>Lần nhập gần nhất</th></tr></thead><tbody><tr v-for="item in stock.items" :key="item.partId"><td><NuxtLink class="part-link" :to="`/inventory/${item.partId}`" @click="stockModal = false"><span class="cell-main">{{ item.partName }}</span><span class="cell-sub mono">{{ item.partCode }}</span></NuxtLink></td><td class="text-right cell-main">{{ formatNumber(item.quantityOnHand) }}</td><td class="text-right">{{ formatCurrency(item.lastUnitCost) }}</td><td>{{ item.lastReceiptAt ? formatDate(item.lastReceiptAt) : '—' }}</td></tr></tbody></table><AppEmpty v-else title="Chưa có tồn kho" message="Nhà cung cấp này chưa có phụ tùng được nhập qua phiếu chi." /></div>
     </AppModal>
   </div>
 </template>
@@ -108,4 +108,6 @@ onMounted(load)
 .small-icon { width: 34px; height: 34px; }
 .stock-total { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding: 14px 16px; border-radius: 12px; background: var(--amber-soft); }
 .stock-total strong { color: var(--navy-950); font-size: 24px; }
+.part-link { display: block; }
+.part-link:hover .cell-main { color: var(--blue); }
 </style>

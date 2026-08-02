@@ -168,8 +168,15 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
-app.UseSwagger();
-app.UseSwaggerUI();
+app.UseSwagger(options =>
+{
+    options.RouteTemplate = "api/v1/swagger/{documentName}/swagger.json";
+});
+app.UseSwaggerUI(options =>
+{
+    options.RoutePrefix = "api/v1/swagger";
+    options.SwaggerEndpoint("/api/v1/swagger/v1/swagger.json", "MotoCare API v1");
+});
 var webRootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
 Directory.CreateDirectory(Path.Combine(webRootPath, "uploads"));
 app.UseStaticFiles(new StaticFileOptions

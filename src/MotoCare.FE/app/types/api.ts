@@ -58,6 +58,8 @@ export interface Customer extends BaseDocument {
   email?: string
   address?: string
   addressDetails?: AddressDetails
+  dateOfBirth?: string
+  gender?: string
   taxCode?: string
   notes?: string
   loyaltyAccountId?: string

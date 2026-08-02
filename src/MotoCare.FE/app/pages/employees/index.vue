@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Edit3, Plus, Search, Trash2, UserCog } from '@lucide/vue'
 import type { Employee, PagedResult } from '~/types/api'
-import { formatNumber, statusLabel } from '~/utils/format'
+import { formatDate, formatNumber, statusLabel } from '~/utils/format'
 
 const api = useApi()
 const toast = useToast()
@@ -12,9 +12,8 @@ const saving = ref(false)
 const modalOpen = ref(false)
 const editing = ref<Employee>()
 const form = reactive({
-  employeeCode: '', fullName: '', phone: '', email: '', addressDetails: emptyAddressDetails(),
-  hireDate: new Date().toISOString().slice(0, 10), position: 'Kỹ thuật viên',
-  skillLevel: '', specialtiesText: '', baseSalary: 0, status: 'Active', notes: ''
+  employeeCode: '', fullName: '', phone: '', addressDetails: emptyAddressDetails(),
+  hireDate: new Date().toISOString().slice(0, 10), specialtiesText: '', status: 'Active', notes: ''
 })
 
 const load = async (page = 1) => {
@@ -35,16 +34,17 @@ watch(search, () => {
 const openForm = (employee?: Employee) => {
   editing.value = employee
   Object.assign(form, employee ? {
-    ...employee,
+    employeeCode: employee.employeeCode,
+    fullName: employee.fullName,
+    phone: employee.phone,
     addressDetails: normalizeAddressDetails(employee.addressDetails, employee.address),
     hireDate: (employee as any).hireDate?.slice(0, 10) || new Date().toISOString().slice(0, 10),
     specialtiesText: employee.specialties?.join(', ') || '',
-    baseSalary: (employee as any).baseSalary || 0,
+    status: employee.status,
     notes: (employee as any).notes || ''
   } : {
-    employeeCode: '', fullName: '', phone: '', email: '', addressDetails: emptyAddressDetails(),
-    hireDate: new Date().toISOString().slice(0, 10), position: 'Kỹ thuật viên',
-    skillLevel: '', specialtiesText: '', baseSalary: 0, status: 'Active', notes: ''
+    employeeCode: '', fullName: '', phone: '', addressDetails: emptyAddressDetails(),
+    hireDate: new Date().toISOString().slice(0, 10), specialtiesText: '', status: 'Active', notes: ''
   })
   modalOpen.value = true
 }
@@ -97,11 +97,11 @@ onMounted(() => load())
       </header>
       <div class="table-wrap">
         <table v-if="result.items.length" class="data-table">
-          <thead><tr><th>Nhân viên</th><th>Chức vụ</th><th>Chuyên môn</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead>
+          <thead><tr><th>Nhân viên</th><th>Ngày vào làm</th><th>Chuyên môn</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead>
           <tbody>
             <tr v-for="employee in result.items" :key="employee.id">
               <td><div class="cell-main">{{ employee.fullName }}</div><div class="cell-sub mono">{{ employee.employeeCode }} · {{ employee.phone }}</div></td>
-              <td><div class="cell-main">{{ employee.position }}</div><div class="cell-sub">{{ employee.skillLevel || 'Chưa xếp bậc' }}</div></td>
+              <td>{{ formatDate((employee as any).hireDate) }}</td>
               <td>{{ employee.specialties?.join(', ') || '—' }}</td>
               <td><AppBadge :tone="employee.status === 'Active' ? 'success' : employee.status === 'OnLeave' ? 'warning' : 'neutral'">{{ statusLabel(employee.status) }}</AppBadge></td>
               <td class="text-right"><button class="btn btn-secondary btn-sm" @click="openForm(employee)"><Edit3 :size="14" /> Sửa</button></td>
@@ -119,11 +119,7 @@ onMounted(() => load())
         <div class="field"><label>Mã nhân viên <span class="muted">(tự động)</span></label><input v-model.trim="form.employeeCode" class="input" placeholder="Ví dụ: NV-000001" /></div>
         <div class="field"><label>Họ và tên *</label><input v-model.trim="form.fullName" class="input" required /></div>
         <div class="field"><label>Số điện thoại *</label><input v-model.trim="form.phone" class="input" required /></div>
-        <div class="field"><label>Email</label><input v-model.trim="form.email" class="input" type="email" /></div>
-        <div class="field"><label>Chức vụ</label><input v-model.trim="form.position" class="input" required /></div>
-        <div class="field"><label>Cấp độ kỹ năng</label><input v-model.trim="form.skillLevel" class="input" placeholder="Senior, Junior..." /></div>
         <div class="field"><label>Ngày vào làm</label><input v-model="form.hireDate" class="input" type="date" required /></div>
-        <div class="field"><label>Lương cơ bản</label><AppNumberInput v-model="form.baseSalary" class="input" min="0" /></div>
         <div class="field"><label>Trạng thái</label><select v-model="form.status" class="select"><option value="Active">Đang làm việc</option><option value="OnLeave">Nghỉ phép</option><option value="Inactive">Ngừng làm</option></select></div>
         <div class="field"><label>Chuyên môn</label><input v-model="form.specialtiesText" class="input" placeholder="Máy, điện, phanh..." /></div>
         <AppAddressFields v-model="form.addressDetails" />

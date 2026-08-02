@@ -10,8 +10,8 @@ export const localizeCountries = (countries: LocationOption[]): LocationOption[]
     .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
 }
 
-export const emptyAddressDetails = (legacyAddress = ''): AddressDetails => ({
-  addressLine: legacyAddress,
+export const emptyAddressDetails = (legacyAddress: string | null = ''): AddressDetails => ({
+  addressLine: legacyAddress || '',
   countryCode: 'VN',
   countryName: 'Việt Nam',
   regionCode: '',
@@ -22,7 +22,7 @@ export const emptyAddressDetails = (legacyAddress = ''): AddressDetails => ({
 
 export const normalizeAddressDetails = (
   details?: Partial<AddressDetails> | null,
-  legacyAddress = ''
+  legacyAddress: string | null = ''
 ): AddressDetails => details
   ? {
       addressLine: details.addressLine || '',
@@ -35,10 +35,10 @@ export const normalizeAddressDetails = (
     }
   : emptyAddressDetails(legacyAddress)
 
-export const formatAddressDetails = (details: AddressDetails) =>
+export const formatAddressDetails = (details?: Partial<AddressDetails> | null) =>
   [
-    details.addressLine,
-    details.areaName,
-    details.regionName,
-    details.countryName
-  ].map(value => value.trim()).filter(Boolean).join(', ')
+    details?.addressLine,
+    details?.areaName,
+    details?.regionName,
+    details?.countryName
+  ].map(value => String(value ?? '').trim()).filter(Boolean).join(', ')

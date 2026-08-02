@@ -151,3 +151,6 @@ pnpm build
   .\build-release.bat 1.0.2 "Sửa API production cho ứng dụng Windows"
 - Mô tả kỹ thuật và nghiệp vụ chi tiết:
   [`docs/MO_TA_KY_THUAT_MOTOCARE.md`](docs/MO_TA_KY_THUAT_MOTOCARE.md).
+
+.\deploy.ps1 -AppSettingsPath 'D:\Works\MotoCare\src\MotoCare.Api\appsettings.Production.json' -EnableHttps
+.\src\MotoCare.FE\build-release.bat 1.0.4 "Modal"

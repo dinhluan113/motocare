@@ -257,7 +257,7 @@ onMounted(load)
           <NuxtLink
             v-for="part in lowStock"
             :key="part.id"
-            to="/inventory"
+            :to="`/inventory/${part.id}`"
             class="stock-row"
           >
             <div>

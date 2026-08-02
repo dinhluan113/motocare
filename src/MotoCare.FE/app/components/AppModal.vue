@@ -17,7 +17,7 @@ const emit = defineEmits<{ close: [] }>()
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="open" class="modal-backdrop" @click.self="emit('close')">
+      <div v-if="open" class="modal-backdrop">
         <section
           class="modal"
           role="dialog"

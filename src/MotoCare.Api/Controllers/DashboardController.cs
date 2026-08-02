@@ -85,6 +85,7 @@ public sealed class DashboardController(
         var overdueOrders = await context.Collection<RepairOrder>()
             .Find(x => x.ExpectedDeliveryAt != null
                 && x.ExpectedDeliveryAt < now
+                && x.Status != RepairOrderStatus.Completed
                 && x.Status != RepairOrderStatus.Delivered
                 && x.Status != RepairOrderStatus.Cancelled
                 && !x.IsDeleted)

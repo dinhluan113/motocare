@@ -166,10 +166,11 @@ const loadAllTransactions = async (partId: string) => {
 const loadMissingVouchers = async (items: InventoryTransaction[]) => {
   if (isEmployee.value) return
   const knownIds = new Set(vouchers.value.map(voucher => voucher.id))
-  const ids = [...new Set(items
+  const referenceIds = items
     .filter(item => item.referenceType?.toLowerCase() === 'cashtransaction')
     .map(item => item.referenceId)
-    .filter((id): id is string => Boolean(id) && !knownIds.has(id)))]
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  const ids = [...new Set(referenceIds.filter(id => !knownIds.has(id)))]
   const results = await Promise.allSettled(ids.map(id =>
     api.request<CashTransaction>(`/cash-transactions/${id}`, { query: { includeDeleted: true } })))
   vouchers.value.push(...results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []))

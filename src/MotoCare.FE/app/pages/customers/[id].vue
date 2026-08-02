@@ -66,6 +66,7 @@ const currentTier = computed(() => {
   const code = loyalty.value?.account?.currentTierCode || customer.value?.loyaltyTierCode
   return tiers.value.find(tier => tier.code === code)
 })
+const canManageVehicles = computed(() => !!customer.value && !customer.value.isDeleted)
 const replacementDueText = (item: PartReplacementReminder) => {
   const details: string[] = []
   if (item.dueOdometer !== undefined) details.push(`${formatNumber(item.dueOdometer)} km`)
@@ -259,7 +260,7 @@ onMounted(load)
             <span><AppEntityLink :to="entityDetailRoute('VehicleBrand', vehicleBrand(vehicle.vehicleModelId)?.id)">{{ vehicleBrand(vehicle.vehicleModelId)?.name || 'Chưa rõ hãng' }}</AppEntityLink> · <AppEntityLink :to="entityDetailRoute('VehicleModel', vehicle.vehicleModelId)">{{ vehicleModel(vehicle.vehicleModelId)?.name || 'Chưa rõ dòng xe' }}</AppEntityLink> · {{ vehicle.manufactureYear || '—' }}</span>
             <small>Số máy: {{ vehicle.engineNumber || '—' }} · ODO: {{ formatNumber(vehicle.odometer || 0) }} km</small>
           </div>
-          <div v-if="!customer.isDeleted && !vehicle.isDeleted" class="inline"><button class="icon-btn" title="Cập nhật xe" @click="openVehicleForm(vehicle)"><Pencil :size="15" /></button><button v-if="!isEmployee" class="icon-btn danger-button" title="Xóa xe" @click="removeVehicle(vehicle)"><Trash2 :size="15" /></button><NuxtLink class="btn btn-secondary btn-sm" :to="{ path: '/repair-orders/new', query: { customerId, vehicleId: vehicle.id } }">Tiếp nhận</NuxtLink></div>
+          <div v-if="canManageVehicles && !vehicle.isDeleted" class="inline"><button class="icon-btn" title="Cập nhật xe" @click="openVehicleForm(vehicle)"><Pencil :size="15" /></button><button v-if="!isEmployee" class="icon-btn danger-button" title="Xóa xe" @click="removeVehicle(vehicle)"><Trash2 :size="15" /></button><NuxtLink class="btn btn-secondary btn-sm" :to="{ path: '/repair-orders/new', query: { customerId, vehicleId: vehicle.id } }">Tiếp nhận</NuxtLink></div>
         </article>
       </div>
       <AppEmpty v-else :icon="Bike" title="Khách hàng chưa có xe" message="Thêm phương tiện để có thể tạo phiếu sửa chữa." />

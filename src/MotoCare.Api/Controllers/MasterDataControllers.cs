@@ -156,6 +156,7 @@ public sealed class PartsController(
         var filter = BuildSearchFilter(search);
         var categoryId = Request.Query["categoryId"].ToString();
         var supplierId = Request.Query["supplierId"].ToString();
+        var warehouseLocationId = Request.Query["warehouseLocationId"].ToString();
         if (!string.IsNullOrWhiteSpace(categoryId))
         {
             filter &= Builders<Part>.Filter.Eq(x => x.PartCategoryId, categoryId);
@@ -163,6 +164,14 @@ public sealed class PartsController(
         if (!string.IsNullOrWhiteSpace(supplierId))
         {
             filter &= Builders<Part>.Filter.AnyEq(x => x.SupplierIds, supplierId);
+        }
+        if (!string.IsNullOrWhiteSpace(warehouseLocationId))
+        {
+            filter &= Builders<Part>.Filter.Or(
+                Builders<Part>.Filter.Eq(x => x.WarehouseLocationId, warehouseLocationId),
+                Builders<Part>.Filter.AnyEq(x => x.WarehouseLocationIds, warehouseLocationId),
+                Builders<Part>.Filter.ElemMatch(x => x.WarehouseStocks,
+                    x => x.WarehouseLocationId == warehouseLocationId));
         }
 
         var result = await Repository.GetPageAsync(
@@ -181,6 +190,9 @@ public sealed class PartsController(
         entity.StockPrice = 0;
         entity.QuantityOnHand = 0;
         entity.SupplierIds = [];
+        entity.WarehouseStocks = entity.WarehouseLocationIds
+            .Select(x => new PartWarehouseStock { WarehouseLocationId = x })
+            .ToList();
         return await base.Create(entity, cancellationToken);
     }
 
@@ -193,6 +205,17 @@ public sealed class PartsController(
         entity.StockPrice = current.StockPrice;
         entity.QuantityOnHand = current.QuantityOnHand;
         entity.SupplierIds = current.SupplierIds;
+        var currentStocks = CurrentWarehouseStocks(current);
+        var removedWithStock = currentStocks.Any(x => x.QuantityOnHand > 0
+            && !entity.WarehouseLocationIds.Contains(x.WarehouseLocationId));
+        if (removedWithStock)
+        {
+            throw new InvalidOperationException(
+                "Không thể bỏ vị trí vẫn còn tồn kho. Hãy chuyển hết hàng sang ngăn khác trước.");
+        }
+        entity.WarehouseStocks = entity.WarehouseLocationIds.Select(locationId =>
+            currentStocks.FirstOrDefault(x => x.WarehouseLocationId == locationId)
+            ?? new PartWarehouseStock { WarehouseLocationId = locationId }).ToList();
         return await base.Update(id, entity, cancellationToken);
     }
 
@@ -242,6 +265,30 @@ public sealed class PartsController(
         Part entity,
         CancellationToken cancellationToken)
     {
+        entity.WarehouseLocationIds = (entity.WarehouseLocationIds ?? [])
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct()
+            .ToList();
+        if (!string.IsNullOrWhiteSpace(entity.WarehouseLocationId)
+            && !entity.WarehouseLocationIds.Contains(entity.WarehouseLocationId))
+        {
+            entity.WarehouseLocationIds.Insert(0, entity.WarehouseLocationId);
+        }
+        if (string.IsNullOrWhiteSpace(entity.WarehouseLocationId))
+        {
+            entity.WarehouseLocationId = entity.WarehouseLocationIds.FirstOrDefault();
+        }
+        if (entity.WarehouseLocationIds.Count > 0)
+        {
+            var locationCount = await context.Collection<WarehouseLocation>()
+                .CountDocumentsAsync(x => entity.WarehouseLocationIds.Contains(x.Id)
+                    && !x.IsDeleted && x.IsActive, cancellationToken: cancellationToken);
+            if (locationCount != entity.WarehouseLocationIds.Count)
+            {
+                throw new InvalidOperationException("Một hoặc nhiều vị trí kho không tồn tại hoặc đã ngừng sử dụng.");
+            }
+        }
+
         var category = await context.Collection<PartCategory>()
             .Find(x => x.Id == entity.PartCategoryId && !x.IsDeleted && x.IsActive)
             .FirstOrDefaultAsync(cancellationToken)
@@ -270,6 +317,23 @@ public sealed class PartsController(
             }
         }
         entity.Specifications = normalized;
+    }
+
+    private static List<PartWarehouseStock> CurrentWarehouseStocks(Part part)
+    {
+        if (part.WarehouseStocks.Count > 0) return part.WarehouseStocks;
+        if (!string.IsNullOrWhiteSpace(part.WarehouseLocationId) && part.QuantityOnHand > 0)
+        {
+            return
+            [
+                new PartWarehouseStock
+                {
+                    WarehouseLocationId = part.WarehouseLocationId,
+                    QuantityOnHand = part.QuantityOnHand
+                }
+            ];
+        }
+        return [];
     }
 
     private static string NormalizeSpecificationValue(
@@ -381,6 +445,55 @@ public sealed class PartCategoriesController(IMongoRepository<PartCategory> repo
     }
 }
 
+[Route("api/v1/warehouse-locations")]
+public sealed class WarehouseLocationsController(
+    IMongoRepository<WarehouseLocation> repository,
+    MongoDbContext context)
+    : CrudController<WarehouseLocation>(repository)
+{
+    protected override FilterDefinition<WarehouseLocation> BuildSearchFilter(string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return Builders<WarehouseLocation>.Filter.Empty;
+        var regex = new BsonRegularExpression(
+            System.Text.RegularExpressions.Regex.Escape(search.Trim()), "i");
+        return Builders<WarehouseLocation>.Filter.Or(
+            Builders<WarehouseLocation>.Filter.Regex(x => x.Code, regex),
+            Builders<WarehouseLocation>.Filter.Regex(x => x.Name, regex));
+    }
+
+    protected override void Prepare(WarehouseLocation entity)
+    {
+        entity.Code = $"K{entity.Rack}-T{entity.Level}-N{entity.Bin}";
+        entity.Name = string.IsNullOrWhiteSpace(entity.Name)
+            ? $"Kệ {entity.Rack} · Tầng {entity.Level} · Ngăn {entity.Bin}"
+            : entity.Name.Trim();
+        entity.Description = entity.Description?.Trim();
+    }
+
+    protected override void ValidateBusinessRules(WarehouseLocation entity)
+    {
+        if (entity.Rack <= 0 || entity.Level <= 0 || entity.Bin <= 0)
+        {
+            throw new InvalidOperationException("Kệ, tầng và ngăn phải là số lớn hơn 0.");
+        }
+    }
+
+    public override async Task<IActionResult> Delete(string id, CancellationToken cancellationToken)
+    {
+        var isInUse = await context.Collection<Part>()
+            .Find(x => !x.IsDeleted && (x.WarehouseLocationId == id
+                || x.WarehouseLocationIds.Contains(id)
+                || x.WarehouseStocks.Any(stock => stock.WarehouseLocationId == id)))
+            .AnyAsync(cancellationToken);
+        if (isInUse)
+        {
+            throw new InvalidOperationException(
+                "Vị trí đang được gán cho phụ tùng. Hãy chuyển phụ tùng sang vị trí khác trước khi xóa.");
+        }
+        return await base.Delete(id, cancellationToken);
+    }
+}
+
 [Route("api/v1/service-categories")]
 public sealed class ServiceCategoriesController(IMongoRepository<ServiceCategory> repository)
     : CrudController<ServiceCategory>(repository)
@@ -450,9 +563,14 @@ public sealed class SuppliersController(
     }
 
     [HttpGet("{id}/stock")]
-    public async Task<IActionResult> Stock(string id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Stock(
+        string id,
+        [FromQuery] bool includeDeleted = false,
+        CancellationToken cancellationToken = default)
     {
-        var supplier = await Repository.GetByIdAsync(id, cancellationToken)
+        var supplier = await context.Collection<Supplier>()
+            .Find(x => x.Id == id && (includeDeleted || !x.IsDeleted))
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new KeyNotFoundException("Không tìm thấy nhà cung cấp.");
         var stocks = await context.Collection<SupplierPartStock>()
             .Find(x => x.SupplierId == id && !x.IsDeleted)
@@ -540,6 +658,11 @@ public sealed class CashTransactionsController(
         if (!string.IsNullOrWhiteSpace(cashCategoryId))
         {
             filters.Add(Builders<CashTransaction>.Filter.Eq(x => x.CashCategoryId, cashCategoryId));
+        }
+        var supplierId = Request.Query["supplierId"].ToString();
+        if (!string.IsNullOrWhiteSpace(supplierId))
+        {
+            filters.Add(Builders<CashTransaction>.Filter.Eq(x => x.SupplierId, supplierId));
         }
         if (DateTime.TryParse(Request.Query["from"], out var from))
         {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, Banknote, ClipboardList, Printer, RotateCcw, XCircle } from '@lucide/vue'
 import type { Invoice } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatDate, formatNumber, statusLabel, statusTone } from '~/utils/format'
 
 const route = useRoute()
@@ -19,7 +20,11 @@ const cancelReason = ref('')
 const invoiceId = computed(() => String(route.params.id))
 const load = async () => {
   loading.value = true
-  try { invoice.value = await api.request(`/invoices/${invoiceId.value}`) }
+  try {
+    invoice.value = await api.request(`/invoices/${invoiceId.value}`, {
+      query: { includeDeleted: true }
+    })
+  }
   finally { loading.value = false }
 }
 const openPayment = () => {
@@ -63,8 +68,8 @@ const printInvoice = () => window.print()
   <div class="page invoice-page">
     <NuxtLink to="/invoices" class="back-link no-print"><ArrowLeft :size="16" /> Danh sách hóa đơn</NuxtLink>
     <div v-if="invoice" class="page-header no-print">
-      <div><div class="inline"><h1 class="page-title mono">{{ invoice.code }}</h1><AppBadge :tone="statusTone(invoice.paymentStatus)">{{ statusLabel(invoice.paymentStatus) }}</AppBadge></div><p class="page-subtitle">Ngày lập {{ formatDate(invoice.issueDate, true) }}</p></div>
-      <div class="page-actions"><NuxtLink class="btn btn-secondary" :to="`/repair-orders/${invoice.repairOrderId}`"><ClipboardList :size="17" /> Xem phiếu sửa chữa</NuxtLink><button class="btn btn-secondary" @click="printInvoice"><Printer :size="17" /> In hóa đơn</button><button v-if="invoice.paymentStatus === 'Unpaid'" class="btn btn-secondary" @click="cancelOpen = true"><XCircle :size="17" /> Hủy hóa đơn</button><button v-if="invoice.paidAmount > 0 && invoice.paymentStatus !== 'Refunded'" class="btn btn-secondary" @click="refundOpen = true"><RotateCcw :size="17" /> Hoàn tiền</button><button v-if="invoice.remainingAmount > 0" class="btn btn-accent" @click="openPayment"><Banknote :size="17" /> Thanh toán</button></div>
+      <div><div class="inline"><h1 class="page-title mono">{{ invoice.code }}</h1><AppBadge v-if="invoice.isDeleted" tone="neutral">Đã xóa</AppBadge><AppBadge v-else :tone="statusTone(invoice.paymentStatus)">{{ statusLabel(invoice.paymentStatus) }}</AppBadge></div><p class="page-subtitle">Ngày lập {{ formatDate(invoice.issueDate, true) }}</p></div>
+      <div class="page-actions"><NuxtLink class="btn btn-secondary" :to="`/repair-orders/${invoice.repairOrderId}`"><ClipboardList :size="17" /> Xem phiếu sửa chữa</NuxtLink><button class="btn btn-secondary" @click="printInvoice"><Printer :size="17" /> In hóa đơn</button><button v-if="!invoice.isDeleted && invoice.paymentStatus === 'Unpaid'" class="btn btn-secondary" @click="cancelOpen = true"><XCircle :size="17" /> Hủy hóa đơn</button><button v-if="!invoice.isDeleted && invoice.paidAmount > 0 && invoice.paymentStatus !== 'Refunded'" class="btn btn-secondary" @click="refundOpen = true"><RotateCcw :size="17" /> Hoàn tiền</button><button v-if="!invoice.isDeleted && invoice.remainingAmount > 0" class="btn btn-accent" @click="openPayment"><Banknote :size="17" /> Thanh toán</button></div>
     </div>
 
     <article v-if="invoice" class="invoice-paper">
@@ -72,14 +77,14 @@ const printInvoice = () => window.print()
         <div class="invoice-brand"><span>MC</span><div><strong>MOTOCARE</strong><small>Motorcycle Workshop</small></div></div>
         <div class="invoice-number"><small>HÓA ĐƠN BÁN HÀNG</small><strong>{{ invoice.code }}</strong><span>{{ formatDate(invoice.issueDate, true) }}</span></div>
       </header>
-      <section class="customer-block"><div><span>Khách hàng</span><strong>{{ invoice.customerName }}</strong></div><div><span>Điện thoại</span><strong>{{ invoice.customerPhone }}</strong></div><div><span>Địa chỉ</span><strong>{{ invoice.customerAddress || '—' }}</strong></div></section>
+      <section class="customer-block"><div><span>Khách hàng</span><strong><AppEntityLink :to="entityDetailRoute('Customer', invoice.customerId)">{{ invoice.customerName }}</AppEntityLink></strong></div><div><span>Điện thoại</span><strong>{{ invoice.customerPhone }}</strong></div><div><span>Địa chỉ</span><strong>{{ invoice.customerAddress || '—' }}</strong></div></section>
       <div class="invoice-table-wrap">
         <table class="invoice-table">
           <thead><tr><th>#</th><th>Nội dung</th><th class="text-right">SL</th><th class="text-right">Đơn giá</th><th class="text-right">Giảm</th><th class="text-right">Thành tiền</th></tr></thead>
           <tbody>
             <tr v-for="(item, index) in invoice.items" :key="item.id">
               <td class="line-index" data-label="#">{{ index + 1 }}</td>
-              <td class="line-description" data-label="Nội dung"><strong>{{ item.description }}</strong><span>{{ item.itemType === 'Part' ? 'Phụ tùng' : 'Dịch vụ' }}</span></td>
+              <td class="line-description" data-label="Nội dung"><strong><AppEntityLink :to="entityDetailRoute(item.itemType === 'Part' ? 'Part' : 'ServiceCategory', item.referenceId)">{{ item.description }}</AppEntityLink></strong><span>{{ item.itemType === 'Part' ? 'Phụ tùng' : 'Dịch vụ' }}</span></td>
               <td class="line-quantity text-right" data-label="Số lượng">{{ item.itemType === 'Service' ? '—' : formatNumber(item.quantity) }}</td>
               <td class="line-price text-right" data-label="Đơn giá">{{ formatCurrency(item.unitPrice) }}</td>
               <td class="line-discount text-right" data-label="Giảm">{{ item.discountType === 'Percentage' ? `${item.discountValue}%` : formatCurrency(item.discountAmount) }}</td>
@@ -90,7 +95,7 @@ const printInvoice = () => window.print()
       </div>
       <section class="invoice-footer">
         <div class="payment-history"><h3>Lịch sử thanh toán</h3><div v-if="invoice.payments.length"><div v-for="item in invoice.payments" :key="item.id" class="payment-row"><span>{{ formatDate(item.paidAt, true) }} · {{ item.method }}</span><strong>{{ formatCurrency(item.amount) }}</strong></div></div><p v-else>Chưa có giao dịch thanh toán.</p></div>
-        <div class="totals"><div><span>Tạm tính</span><strong>{{ formatCurrency(invoice.subtotal) }}</strong></div><div><span>Tổng giảm giá</span><strong>-{{ formatCurrency(invoice.discountAmount + invoice.loyaltyDiscountAmount) }}</strong></div><div v-if="invoice.couponCode"><span>Trong đó coupon {{ invoice.couponCode }}</span><strong>{{ formatCurrency(invoice.couponDiscountAmount) }}</strong></div><div><span>Thuế</span><strong>{{ formatCurrency(invoice.taxAmount) }}</strong></div><div class="grand-total"><span>Tổng cộng</span><strong>{{ formatCurrency(invoice.totalAmount) }}</strong></div><div><span>Đã thanh toán</span><strong>{{ formatCurrency(invoice.paidAmount) }}</strong></div><div class="remaining"><span>Còn phải thu</span><strong>{{ formatCurrency(invoice.remainingAmount) }}</strong></div></div>
+        <div class="totals"><div><span>Tạm tính</span><strong>{{ formatCurrency(invoice.subtotal) }}</strong></div><div><span>Tổng giảm giá</span><strong>-{{ formatCurrency(invoice.discountAmount + invoice.loyaltyDiscountAmount) }}</strong></div><div v-if="invoice.couponCode"><span>Trong đó coupon <AppEntityLink :to="entityDetailRoute('Coupon', invoice.couponId)"><span class="mono">{{ invoice.couponCode }}</span></AppEntityLink></span><strong>{{ formatCurrency(invoice.couponDiscountAmount) }}</strong></div><div><span>Thuế</span><strong>{{ formatCurrency(invoice.taxAmount) }}</strong></div><div class="grand-total"><span>Tổng cộng</span><strong>{{ formatCurrency(invoice.totalAmount) }}</strong></div><div><span>Đã thanh toán</span><strong>{{ formatCurrency(invoice.paidAmount) }}</strong></div><div class="remaining"><span>Còn phải thu</span><strong>{{ formatCurrency(invoice.remainingAmount) }}</strong></div></div>
       </section>
       <div class="invoice-note">Cảm ơn quý khách đã tin tưởng MotoCare. Vui lòng giữ hóa đơn để đối chiếu bảo hành.</div>
     </article>
@@ -171,5 +176,6 @@ const printInvoice = () => window.print()
   :global(.main-column) { margin: 0 !important; }
   :global(.content) { padding: 0 !important; }
   .invoice-paper { border: 0; box-shadow: none; }
+  .invoice-paper :deep(.entity-link) { color: inherit !important; text-decoration: none !important; }
 }
 </style>

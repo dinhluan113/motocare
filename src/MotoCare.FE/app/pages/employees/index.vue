@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Edit3, Plus, Search, Trash2, UserCog } from '@lucide/vue'
 import type { Employee, PagedResult } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatDate, formatNumber, statusLabel } from '~/utils/format'
 
 const api = useApi()
@@ -100,7 +101,7 @@ onMounted(() => load())
           <thead><tr><th>Nhân viên</th><th>Ngày vào làm</th><th>Chuyên môn</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead>
           <tbody>
             <tr v-for="employee in result.items" :key="employee.id">
-              <td><div class="cell-main">{{ employee.fullName }}</div><div class="cell-sub mono">{{ employee.employeeCode }} · {{ employee.phone }}</div></td>
+              <td><AppEntityLink class="cell-main" :to="entityDetailRoute('Employee', employee.id)">{{ employee.fullName }}</AppEntityLink><div class="cell-sub mono">{{ employee.employeeCode }} · {{ employee.phone }}</div></td>
               <td>{{ formatDate((employee as any).hireDate) }}</td>
               <td>{{ employee.specialties?.join(', ') || '—' }}</td>
               <td><AppBadge :tone="employee.status === 'Active' ? 'success' : employee.status === 'OnLeave' ? 'warning' : 'neutral'">{{ statusLabel(employee.status) }}</AppBadge></td>

@@ -44,8 +44,10 @@ public sealed class RoleAccessMiddleware(RequestDelegate next)
                 "/api/v1/parts",
                 "/api/v1/part-brands",
                 "/api/v1/part-categories",
+                "/api/v1/service-categories",
                 "/api/v1/suppliers",
                 "/api/v1/inventory",
+                "/api/v1/warehouse-locations",
                 "/api/v1/locations");
         }
 

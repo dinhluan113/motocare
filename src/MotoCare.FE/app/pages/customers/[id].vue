@@ -3,6 +3,7 @@ import { ArrowLeft, BellRing, Bike, ClipboardList, Pencil, Plus, Star, Trash2 } 
 import type {
   Customer,
   LoyaltyAccount,
+  LoyaltyTier,
   PagedResult,
   PartReplacementReminder,
   RepairOrder,
@@ -10,6 +11,7 @@ import type {
   VehicleBrand,
   VehicleModel
 } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatDate, formatNumber, statusLabel, statusTone } from '~/utils/format'
 
 const route = useRoute()
@@ -24,6 +26,7 @@ const loyalty = ref<{ account: LoyaltyAccount | null, transactions: any[] }>()
 const models = ref<VehicleModel[]>([])
 const brands = ref<VehicleBrand[]>([])
 const replacementReminders = ref<PartReplacementReminder[]>([])
+const tiers = ref<LoyaltyTier[]>([])
 const loading = ref(true)
 const customerModalOpen = ref(false)
 const modalOpen = ref(false)
@@ -53,10 +56,16 @@ const modelName = (id: string) => {
   const brand = brands.value.find(x => x.id === model?.brandId)
   return model ? `${brand?.name || ''} ${model.name}`.trim() : 'Chưa rõ dòng xe'
 }
+const vehicleModel = (id: string) => models.value.find(x => x.id === id)
+const vehicleBrand = (modelId: string) => brands.value.find(x => x.id === vehicleModel(modelId)?.brandId)
 const modelOptions = computed(() => models.value.map(model => ({
   code: model.id,
   name: modelName(model.id)
 })))
+const currentTier = computed(() => {
+  const code = loyalty.value?.account?.currentTierCode || customer.value?.loyaltyTierCode
+  return tiers.value.find(tier => tier.code === code)
+})
 const replacementDueText = (item: PartReplacementReminder) => {
   const details: string[] = []
   if (item.dueOdometer !== undefined) details.push(`${formatNumber(item.dueOdometer)} km`)
@@ -130,22 +139,26 @@ const openVehicleForm = (vehicle?: Vehicle) => {
 const load = async () => {
   loading.value = true
   try {
-    const [c, v, h, l, m, b, reminders] = await Promise.all([
-      api.request<Customer>(`/customers/${customerId.value}`),
-      api.request<PagedResult<Vehicle>>('/vehicles', { query: { customerId: customerId.value, pageSize: 100 } }),
-      api.request<PagedResult<RepairOrder>>(`/customers/${customerId.value}/repair-history`, { query: { pageSize: 100 } }),
-      api.request<{ account: LoyaltyAccount | null, transactions: any[] }>(`/customers/${customerId.value}/loyalty`),
-      api.request<PagedResult<VehicleModel>>('/vehicle-models?pageSize=200'),
-      api.request<PagedResult<VehicleBrand>>('/vehicle-brands?pageSize=200'),
-      api.request<PartReplacementReminder[]>(`/customers/${customerId.value}/part-replacement-reminders`)
+    customer.value = await api.request<Customer>(`/customers/${customerId.value}?includeDeleted=true`)
+    const optional = async <T>(request: Promise<T>, fallback: T) => {
+      try { return await request } catch { return fallback }
+    }
+    const [v, h, l, m, b, reminders, loyaltyTiers] = await Promise.all([
+      optional(api.request<PagedResult<Vehicle>>('/vehicles', { query: { customerId: customerId.value, pageSize: 100, includeDeleted: true } }), { items: [], total: 0, page: 1, pageSize: 100, totalPages: 0 }),
+      optional(api.request<PagedResult<RepairOrder>>(`/customers/${customerId.value}/repair-history`, { query: { pageSize: 100 } }), { items: [], total: 0, page: 1, pageSize: 100, totalPages: 0 }),
+      optional(api.request<{ account: LoyaltyAccount | null, transactions: any[] }>(`/customers/${customerId.value}/loyalty`), { account: null, transactions: [] }),
+      optional(api.request<PagedResult<VehicleModel>>('/vehicle-models?pageSize=200&includeDeleted=true'), { items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }),
+      optional(api.request<PagedResult<VehicleBrand>>('/vehicle-brands?pageSize=200&includeDeleted=true'), { items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 }),
+      optional(api.request<PartReplacementReminder[]>(`/customers/${customerId.value}/part-replacement-reminders`), []),
+      isEmployee.value ? Promise.resolve([] as LoyaltyTier[]) : optional(api.request<LoyaltyTier[]>('/loyalty/tiers'), [])
     ])
-    customer.value = c
     vehicles.value = v.items
     history.value = h.items
     loyalty.value = l
     models.value = m.items
     brands.value = b.items
     replacementReminders.value = reminders
+    tiers.value = loyaltyTiers
   } finally { loading.value = false }
 }
 
@@ -186,11 +199,11 @@ onMounted(load)
       <div>
         <div class="inline">
           <h1 class="page-title">{{ customer.fullName }}</h1>
-          <AppBadge :tone="customer.isActive ? 'success' : 'neutral'">{{ customer.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge>
+          <AppBadge :tone="customer.isDeleted || !customer.isActive ? 'neutral' : 'success'">{{ customer.isDeleted ? 'Đã xóa' : customer.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge>
         </div>
         <p class="page-subtitle mono">{{ customer.code }} · {{ customer.phone }} · {{ customer.email || 'Chưa có email' }}</p>
       </div>
-      <div class="page-actions">
+      <div v-if="!customer.isDeleted" class="page-actions">
         <button class="btn btn-secondary" @click="openCustomerForm"><Pencil :size="17" /> Cập nhật</button>
         <button class="btn btn-secondary" @click="openVehicleForm()"><Plus :size="17" /> Thêm xe</button>
         <NuxtLink class="btn btn-accent" :to="{ path: '/repair-orders/new', query: { customerId } }"><ClipboardList :size="17" /> Tạo phiếu sửa</NuxtLink>
@@ -212,7 +225,7 @@ onMounted(load)
         <div class="tier-icon"><Star :size="22" /></div>
         <div>
           <span>Hạng thành viên</span>
-          <strong>{{ loyalty?.account?.currentTierCode || customer?.loyaltyTierCode || 'MEMBER' }}</strong>
+          <AppEntityLink class="tier-detail-link" :to="entityDetailRoute('LoyaltyTier', currentTier?.id)"><strong>{{ loyalty?.account?.currentTierCode || customer?.loyaltyTierCode || 'MEMBER' }}</strong></AppEntityLink>
         </div>
         <div class="point-block">
           <strong>{{ formatNumber(loyalty?.account?.availablePoints || customer?.loyaltyPointBalance || 0) }}</strong>
@@ -227,7 +240,7 @@ onMounted(load)
       <div class="table-wrap">
         <table v-if="replacementReminders.length" class="data-table replacement-table">
           <thead><tr><th>Xe</th><th>Phụ tùng</th><th>Lắp gần nhất</th><th>Hạn thay dự kiến</th><th>Trạng thái</th><th>Phiếu sửa chữa</th></tr></thead>
-          <tbody><tr v-for="item in replacementReminders" :key="`${item.vehicleId}-${item.partId}`"><td><strong class="mono">{{ item.licensePlate }}</strong><span class="cell-sub">ODO {{ item.currentOdometer !== undefined ? `${formatNumber(item.currentOdometer)} km` : 'chưa cập nhật' }}</span></td><td><NuxtLink class="cell-main link" :to="`/inventory/${item.partId}`">{{ item.partName }}</NuxtLink><span class="cell-sub mono">{{ item.partCode }}</span></td><td>{{ formatDate(item.installedAt) }}<span class="cell-sub">{{ item.installedOdometer !== undefined ? `${formatNumber(item.installedOdometer)} km` : 'Không có ODO' }}</span></td><td>{{ replacementDueText(item) }}</td><td><AppBadge :tone="item.isOverdue ? 'danger' : item.isDueSoon ? 'warning' : 'neutral'">{{ replacementStatusText(item) }}</AppBadge></td><td><NuxtLink class="link mono" :to="`/repair-orders/${item.lastRepairOrderId}`">Xem phiếu</NuxtLink></td></tr></tbody>
+          <tbody><tr v-for="item in replacementReminders" :key="`${item.vehicleId}-${item.partId}`"><td><AppEntityLink class="mono" :to="entityDetailRoute('Vehicle', item.vehicleId)"><strong>{{ item.licensePlate }}</strong></AppEntityLink><span class="cell-sub">ODO {{ item.currentOdometer !== undefined ? `${formatNumber(item.currentOdometer)} km` : 'chưa cập nhật' }}</span></td><td><NuxtLink class="cell-main link" :to="`/inventory/${item.partId}`">{{ item.partName }}</NuxtLink><span class="cell-sub mono">{{ item.partCode }}</span></td><td>{{ formatDate(item.installedAt) }}<span class="cell-sub">{{ item.installedOdometer !== undefined ? `${formatNumber(item.installedOdometer)} km` : 'Không có ODO' }}</span></td><td>{{ replacementDueText(item) }}</td><td><AppBadge :tone="item.isOverdue ? 'danger' : item.isDueSoon ? 'warning' : 'neutral'">{{ replacementStatusText(item) }}</AppBadge></td><td><NuxtLink class="link mono" :to="`/repair-orders/${item.lastRepairOrderId}`">Xem phiếu</NuxtLink></td></tr></tbody>
         </table>
         <AppEmpty v-else :icon="BellRing" title="Chưa có lịch thay phụ tùng" message="Lịch sẽ được tạo khi phụ tùng có chu kỳ thay được lắp và hoàn tất trên phiếu sửa chữa." />
       </div>
@@ -242,11 +255,11 @@ onMounted(load)
         <article v-for="vehicle in vehicles" :key="vehicle.id" class="vehicle-card">
           <div class="vehicle-icon"><Bike :size="22" /></div>
           <div>
-            <strong>{{ vehicle.licensePlate }}</strong>
-            <span>{{ modelName(vehicle.vehicleModelId) }} · {{ vehicle.manufactureYear || '—' }}</span>
+            <div class="inline"><AppEntityLink :to="entityDetailRoute('Vehicle', vehicle.id)"><strong>{{ vehicle.licensePlate }}</strong></AppEntityLink><AppBadge v-if="vehicle.isDeleted" tone="neutral">Đã xóa</AppBadge></div>
+            <span><AppEntityLink :to="entityDetailRoute('VehicleBrand', vehicleBrand(vehicle.vehicleModelId)?.id)">{{ vehicleBrand(vehicle.vehicleModelId)?.name || 'Chưa rõ hãng' }}</AppEntityLink> · <AppEntityLink :to="entityDetailRoute('VehicleModel', vehicle.vehicleModelId)">{{ vehicleModel(vehicle.vehicleModelId)?.name || 'Chưa rõ dòng xe' }}</AppEntityLink> · {{ vehicle.manufactureYear || '—' }}</span>
             <small>Số máy: {{ vehicle.engineNumber || '—' }} · ODO: {{ formatNumber(vehicle.odometer || 0) }} km</small>
           </div>
-          <div class="inline"><button class="icon-btn" title="Cập nhật xe" @click="openVehicleForm(vehicle)"><Pencil :size="15" /></button><button v-if="!isEmployee" class="icon-btn danger-button" title="Xóa xe" @click="removeVehicle(vehicle)"><Trash2 :size="15" /></button><NuxtLink class="btn btn-secondary btn-sm" :to="{ path: '/repair-orders/new', query: { customerId, vehicleId: vehicle.id } }">Tiếp nhận</NuxtLink></div>
+          <div v-if="!customer.isDeleted && !vehicle.isDeleted" class="inline"><button class="icon-btn" title="Cập nhật xe" @click="openVehicleForm(vehicle)"><Pencil :size="15" /></button><button v-if="!isEmployee" class="icon-btn danger-button" title="Xóa xe" @click="removeVehicle(vehicle)"><Trash2 :size="15" /></button><NuxtLink class="btn btn-secondary btn-sm" :to="{ path: '/repair-orders/new', query: { customerId, vehicleId: vehicle.id } }">Tiếp nhận</NuxtLink></div>
         </article>
       </div>
       <AppEmpty v-else :icon="Bike" title="Khách hàng chưa có xe" message="Thêm phương tiện để có thể tạo phiếu sửa chữa." />
@@ -256,8 +269,8 @@ onMounted(load)
       <header class="card-header"><h2 class="card-title">Lịch sử sửa chữa</h2><span class="muted">{{ history.length }} phiếu</span></header>
       <div class="table-wrap">
         <table v-if="history.length" class="data-table">
-          <thead><tr><th>Mã phiếu</th><th>Ngày nhận</th><th>Trạng thái</th><th class="text-right">Tổng tiền</th></tr></thead>
-          <tbody><tr v-for="order in history" :key="order.id"><td><NuxtLink class="cell-main link mono" :to="`/repair-orders/${order.id}`">{{ order.code }}</NuxtLink></td><td>{{ formatDate(order.receivedAt, true) }}</td><td><AppBadge :tone="statusTone(order.status)">{{ statusLabel(order.status) }}</AppBadge></td><td class="text-right cell-main">{{ formatCurrency(order.finalTotal) }}</td></tr></tbody>
+          <thead><tr><th>Mã phiếu</th><th>Phương tiện</th><th>Ngày nhận</th><th>Trạng thái</th><th class="text-right">Tổng tiền</th></tr></thead>
+          <tbody><tr v-for="order in history" :key="order.id"><td><NuxtLink class="cell-main link mono" :to="`/repair-orders/${order.id}`">{{ order.code }}</NuxtLink></td><td><AppEntityLink class="mono" :to="entityDetailRoute('Vehicle', order.vehicleId)">{{ vehicles.find(x => x.id === order.vehicleId)?.licensePlate || 'Xem phương tiện' }}</AppEntityLink></td><td>{{ formatDate(order.receivedAt, true) }}</td><td><AppBadge :tone="statusTone(order.status)">{{ statusLabel(order.status) }}</AppBadge></td><td class="text-right cell-main">{{ formatCurrency(order.finalTotal) }}</td></tr></tbody>
         </table>
         <AppEmpty v-else title="Chưa có lịch sử sửa chữa" message="Các phiếu sửa của khách sẽ hiển thị tại đây." />
       </div>
@@ -349,6 +362,7 @@ onMounted(load)
 .tier-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; color: var(--navy-950); background: var(--amber); }
 .point-block { text-align: right; }
 .point-block strong { color: var(--amber); font-size: 24px !important; }
+.loyalty-card :deep(.tier-detail-link) { color: white; }
 .loyalty-card small { grid-column: 2 / -1; }
 .vehicle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 18px; }
 .vehicle-card { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 13px; padding: 16px; border: 1px solid var(--line); border-radius: 13px; }

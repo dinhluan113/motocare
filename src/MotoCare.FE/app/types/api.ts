@@ -89,10 +89,15 @@ export interface Employee extends BaseDocument {
   email?: string
   address?: string
   addressDetails?: AddressDetails
+  dateOfBirth?: string
+  hireDate: string
   position: string
   skillLevel?: string
   specialties: string[]
+  baseSalary: number
   status: 'Active' | 'OnLeave' | 'Inactive'
+  userId?: string
+  notes?: string
 }
 
 export interface VehicleBrand extends BaseDocument {
@@ -115,6 +120,7 @@ export interface PartBrand extends BaseDocument {
   code: string
   name: string
   country?: string
+  contactInfo?: string
   isActive: boolean
 }
 
@@ -152,12 +158,28 @@ export interface ServiceCategory extends BaseDocument {
   isActive: boolean
 }
 
+export interface WarehouseLocation extends BaseDocument {
+  code: string
+  name: string
+  rack: number
+  level: number
+  bin: number
+  description?: string
+  isActive: boolean
+}
+
 export interface Part extends BaseDocument {
   code: string
   barcode?: string
   name: string
   partBrandId: string
   partCategoryId: string
+  warehouseLocationId?: string
+  warehouseLocationIds: string[]
+  warehouseStocks: Array<{
+    warehouseLocationId: string
+    quantityOnHand: number
+  }>
   supplierIds: string[]
   specifications: Array<{
     code: string
@@ -201,12 +223,23 @@ export interface PartReplacementReminder {
 export interface InventoryTransaction extends BaseDocument {
   code: string
   partId: string
-  type: 'Receipt' | 'RepairIssue' | 'RepairReturn' | 'AdjustmentIncrease' | 'AdjustmentDecrease'
+  type: 'Receipt' | 'RepairIssue' | 'RepairReturn' | 'AdjustmentIncrease' | 'AdjustmentDecrease' | 'Transfer'
   quantity: number
   unitCost: number
   referenceType?: string
   referenceId?: string
   supplierId?: string
+  warehouseLocationId?: string
+  warehouseLocationCode?: string
+  fromWarehouseLocationId?: string
+  fromWarehouseLocationCode?: string
+  toWarehouseLocationId?: string
+  toWarehouseLocationCode?: string
+  locationAllocations: Array<{
+    warehouseLocationId: string
+    warehouseLocationCode: string
+    quantity: number
+  }>
   transactionDate: string
   notes?: string
 }
@@ -216,6 +249,7 @@ export interface PurchaseExpenseItem {
   partId: string
   partCode?: string
   partName?: string
+  warehouseLocationId?: string
   quantity: number
   unitCost: number
   lineTotal?: number
@@ -234,8 +268,12 @@ export interface CashTransaction extends BaseDocument {
   transactionDate: string
   amount: number
   paymentMethod: string
+  referenceType?: string
+  referenceId?: string
   description: string
   attachmentUrl?: string
+  createdBy?: string
+  approvedBy?: string
   status: 'New' | 'Confirmed' | 'Cancelled' | 'Approved'
   purchaseItems: PurchaseExpenseItem[]
   confirmedAt?: string
@@ -276,6 +314,8 @@ export interface RepairOrderItem {
   technicianNotes?: string
   workStatus: 'Pending' | 'InProgress' | 'Completed' | 'Cancelled'
   inventoryIssued: boolean
+  issuedWarehouseLocationId?: string
+  issuedWarehouseLocationCode?: string
 }
 
 export interface RepairOrder extends BaseDocument {
@@ -340,6 +380,7 @@ export interface Invoice extends BaseDocument {
   items: Array<{
     id: string
     itemType: 'Service' | 'Part'
+    referenceId?: string
     description: string
     quantity: number
     unitPrice: number
@@ -414,6 +455,7 @@ export interface UserAccount {
   employeeId?: string
   roles: Array<'Admin' | 'Administrator' | 'Manager' | 'Employee'>
   isActive: boolean
+  isDeleted?: boolean
   lastLoginAt?: string
 }
 

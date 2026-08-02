@@ -56,6 +56,7 @@ public static class CollectionNames
             [typeof(PartBrand)] = "part_brands",
             [typeof(Supplier)] = "suppliers",
             [typeof(PartCategory)] = "part_categories",
+            [typeof(WarehouseLocation)] = "warehouse_locations",
             [typeof(ServiceCategory)] = "service_categories",
             [typeof(SupplierPartStock)] = "supplier_part_stocks",
             [typeof(Part)] = "parts",
@@ -71,6 +72,7 @@ public static class CollectionNames
             [typeof(LoyaltyTransaction)] = "loyalty_transactions",
             [typeof(Notification)] = "notifications",
             [typeof(AuditLog)] = "audit_logs",
+            [typeof(ApplicationErrorLog)] = "motocare_logs",
             [typeof(Sequence)] = "sequences"
         };
 

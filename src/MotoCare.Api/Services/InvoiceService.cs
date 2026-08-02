@@ -68,6 +68,8 @@ public sealed class InvoiceService(
                     cancellationToken);
                 changedParts.Add(movement.Part);
                 item.InventoryIssued = true;
+                item.IssuedWarehouseLocationId = movement.Transaction.WarehouseLocationId;
+                item.IssuedWarehouseLocationCode = movement.Transaction.WarehouseLocationCode;
             }
 
             var items = billableOrderItems.Select(x => new InvoiceItem

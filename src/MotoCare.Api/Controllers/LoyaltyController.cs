@@ -27,6 +27,20 @@ public sealed class LoyaltyController(
         return Ok(ApiEnvelope.Ok(tiers));
     }
 
+    [HttpGet("tiers/{id}")]
+    public async Task<IActionResult> TierById(
+        string id,
+        [FromQuery] bool includeDeleted = false,
+        CancellationToken cancellationToken = default)
+    {
+        var tier = await context.Collection<LoyaltyTier>()
+            .Find(x => x.Id == id && (includeDeleted || !x.IsDeleted))
+            .FirstOrDefaultAsync(cancellationToken);
+        return tier is null
+            ? NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy hạng thành viên."))
+            : Ok(ApiEnvelope.Ok(tier));
+    }
+
     [HttpPost("tiers")]
     [Authorize(Roles = SecurityRoles.Management)]
     public async Task<IActionResult> CreateTier(
@@ -75,6 +89,20 @@ public sealed class LoyaltyController(
             .SortByDescending(x => x.EffectiveFrom)
             .ToListAsync(cancellationToken);
         return Ok(ApiEnvelope.Ok(rules));
+    }
+
+    [HttpGet("rules/{id}")]
+    public async Task<IActionResult> RuleById(
+        string id,
+        [FromQuery] bool includeDeleted = false,
+        CancellationToken cancellationToken = default)
+    {
+        var rule = await context.Collection<LoyaltyRule>()
+            .Find(x => x.Id == id && (includeDeleted || !x.IsDeleted))
+            .FirstOrDefaultAsync(cancellationToken);
+        return rule is null
+            ? NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy quy tắc tích điểm."))
+            : Ok(ApiEnvelope.Ok(rule));
     }
 
     [HttpPost("rules")]

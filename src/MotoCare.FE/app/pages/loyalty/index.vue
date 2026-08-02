@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Crown, Plus, Star, Trash2, UsersRound } from '@lucide/vue'
 import type { LoyaltyTier } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatNumber } from '~/utils/format'
 
 interface LoyalCustomer {
@@ -69,6 +70,7 @@ const removeRule = async (rule: LoyaltyRule) => {
   toast.success('Đã xóa quy tắc loyalty', rule.name)
   await load()
 }
+const tierByCode = (code?: string) => tiers.value.find(tier => tier.code === code)
 onMounted(load)
 </script>
 
@@ -76,12 +78,12 @@ onMounted(load)
   <div class="page">
     <div class="page-header"><div><h1 class="page-title">Khách hàng thân thiết</h1><p class="page-subtitle">Hạng thành viên, tích/đổi điểm và danh sách khách có giá trị cao.</p></div><div class="page-actions"><button class="btn btn-secondary" @click="ruleOpen = true"><Plus :size="16" /> Quy tắc điểm</button><button class="btn btn-accent" @click="tierOpen = true"><Plus :size="16" /> Hạng thành viên</button></div></div>
     <section class="tier-grid">
-      <article v-for="(tier, index) in tiers" :key="tier.id" class="tier-card" :class="`tier-${index % 3}`"><button class="icon-btn danger-button" title="Xóa hạng" @click="removeTier(tier)"><Trash2 :size="14" /></button><Crown :size="22" /><span>Cấp {{ tier.rank }}</span><strong>{{ tier.name }}</strong><small>Từ {{ formatCurrency(tier.minEligibleSpend) }} · x{{ tier.earnRate }} điểm</small><div>{{ tier.benefits.join(' · ') || 'Quyền lợi tiêu chuẩn' }}</div></article>
+      <article v-for="(tier, index) in tiers" :key="tier.id" class="tier-card" :class="`tier-${index % 3}`"><button class="icon-btn danger-button" title="Xóa hạng" @click="removeTier(tier)"><Trash2 :size="14" /></button><Crown :size="22" /><span>Cấp {{ tier.rank }}</span><AppEntityLink :to="entityDetailRoute('LoyaltyTier', tier.id)"><strong>{{ tier.name }}</strong></AppEntityLink><small>Từ {{ formatCurrency(tier.minEligibleSpend) }} · x{{ tier.earnRate }} điểm</small><div>{{ tier.benefits.join(' · ') || 'Quyền lợi tiêu chuẩn' }}</div></article>
       <AppEmpty v-if="!tiers.length" :icon="Star" title="Chưa cấu hình hạng thành viên" message="Tạo hạng đầu tiên để tự động phân loại khách hàng." />
     </section>
     <section class="loyalty-grid">
-      <article class="card"><header class="card-header"><h2 class="card-title">Khách hàng nổi bật</h2><UsersRound :size="20" /></header><div class="table-wrap"><table v-if="customers.length" class="data-table"><thead><tr><th>Khách hàng</th><th>Hạng</th><th class="text-right">Chi tiêu</th><th class="text-right">Điểm</th></tr></thead><tbody><tr v-for="item in customers" :key="item.customerId"><td><NuxtLink class="cell-main customer-link" :to="`/customers/${item.customerId}`">{{ item.fullName }}</NuxtLink><div class="cell-sub">{{ item.phone }}</div></td><td><AppBadge tone="warning">{{ item.tierCode }}</AppBadge></td><td class="text-right">{{ formatCurrency(item.eligibleSpend) }}</td><td class="text-right cell-main">{{ formatNumber(item.availablePoints) }}</td></tr></tbody></table><AppEmpty v-else title="Chưa có dữ liệu thành viên" message="Điểm được tạo khi khách thanh toán hóa đơn." /></div></article>
-      <article class="card"><header class="card-header"><h2 class="card-title">Quy tắc đang áp dụng</h2></header><div class="rule-list"><div v-for="rule in rules" :key="rule.id" class="rule-card"><div><strong>{{ rule.name }}</strong><span class="inline"><AppBadge :tone="rule.isActive ? 'success' : 'neutral'">{{ rule.isActive ? 'Đang bật' : 'Tạm tắt' }}</AppBadge><button class="icon-btn danger-button" title="Xóa quy tắc" @click="removeRule(rule)"><Trash2 :size="14" /></button></span></div><p>{{ formatCurrency(rule.spendPerPoint) }} = 1 điểm · 1 điểm = {{ formatCurrency(rule.redemptionValue) }}</p><small>Đổi tối thiểu {{ formatNumber(rule.minimumRedemptionPoints) }} điểm · Tối đa {{ rule.maximumRedemptionRate * 100 }}% hóa đơn</small></div><AppEmpty v-if="!rules.length" title="Chưa có quy tắc điểm" message="Cấu hình cách tích và sử dụng điểm loyalty." /></div></article>
+      <article class="card"><header class="card-header"><h2 class="card-title">Khách hàng nổi bật</h2><UsersRound :size="20" /></header><div class="table-wrap"><table v-if="customers.length" class="data-table"><thead><tr><th>Khách hàng</th><th>Hạng</th><th class="text-right">Chi tiêu</th><th class="text-right">Điểm</th></tr></thead><tbody><tr v-for="item in customers" :key="item.customerId"><td><NuxtLink class="cell-main customer-link" :to="`/customers/${item.customerId}`">{{ item.fullName }}</NuxtLink><div class="cell-sub">{{ item.phone }}</div></td><td><AppEntityLink :to="entityDetailRoute('LoyaltyTier', tierByCode(item.tierCode)?.id)"><AppBadge tone="warning">{{ item.tierCode }}</AppBadge></AppEntityLink></td><td class="text-right">{{ formatCurrency(item.eligibleSpend) }}</td><td class="text-right cell-main">{{ formatNumber(item.availablePoints) }}</td></tr></tbody></table><AppEmpty v-else title="Chưa có dữ liệu thành viên" message="Điểm được tạo khi khách thanh toán hóa đơn." /></div></article>
+      <article class="card"><header class="card-header"><h2 class="card-title">Quy tắc đang áp dụng</h2></header><div class="rule-list"><div v-for="rule in rules" :key="rule.id" class="rule-card"><div><AppEntityLink :to="entityDetailRoute('LoyaltyRule', rule.id)"><strong>{{ rule.name }}</strong></AppEntityLink><span class="inline"><AppBadge :tone="rule.isActive ? 'success' : 'neutral'">{{ rule.isActive ? 'Đang bật' : 'Tạm tắt' }}</AppBadge><button class="icon-btn danger-button" title="Xóa quy tắc" @click="removeRule(rule)"><Trash2 :size="14" /></button></span></div><p>{{ formatCurrency(rule.spendPerPoint) }} = 1 điểm · 1 điểm = {{ formatCurrency(rule.redemptionValue) }}</p><small>Đổi tối thiểu {{ formatNumber(rule.minimumRedemptionPoints) }} điểm · Tối đa {{ rule.maximumRedemptionRate * 100 }}% hóa đơn</small></div><AppEmpty v-if="!rules.length" title="Chưa có quy tắc điểm" message="Cấu hình cách tích và sử dụng điểm loyalty." /></div></article>
     </section>
 
     <AppModal :open="tierOpen" title="Tạo hạng thành viên" @close="tierOpen = false"><form id="tier-form" class="form-grid" @submit.prevent="saveTier"><div class="field"><label>Mã hạng <span class="muted">(tự động)</span></label><input v-model.trim="tierForm.code" class="input" placeholder="Ví dụ: HTV-000001" /></div><div class="field"><label>Tên hạng</label><input v-model.trim="tierForm.name" class="input" required /></div><div class="field"><label>Cấp xếp hạng</label><AppNumberInput v-model="tierForm.rank" class="input" min="1" /></div><div class="field"><label>Chi tiêu tối thiểu</label><AppNumberInput v-model="tierForm.minEligibleSpend" class="input" min="0" /></div><div class="field"><label>Điểm tối thiểu</label><AppNumberInput v-model="tierForm.minEarnedPoints" class="input" min="0" /></div><div class="field"><label>Hệ số tích điểm</label><AppNumberInput v-model="tierForm.earnRate" class="input" min="0" step=".1" /></div><div class="field span-2"><label>Quyền lợi (phân cách bằng dấu phẩy)</label><input v-model="tierForm.benefitsText" class="input" /></div></form><template #footer><button class="btn btn-secondary" @click="tierOpen = false">Hủy</button><button class="btn btn-primary" form="tier-form" :disabled="saving">Tạo hạng</button></template></AppModal>
@@ -95,6 +97,7 @@ onMounted(load)
 .tier-card > svg { margin-bottom: 8px; }
 .tier-card span, .tier-card small { font-size: 11px; opacity: .72; }
 .tier-card strong { font-size: 22px; }
+.tier-card :deep(.entity-link) { color: inherit; }
 .tier-card div { margin-top: 10px; font-size: 11px; }
 .tier-0 { color: #f7f1e9; background: #4c4744; }
 .tier-1 { color: #1f3342; background: #dce8ef; }

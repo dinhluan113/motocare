@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ReceiptText } from '@lucide/vue'
 import type { Invoice, InvoicePaymentStatus, PagedResult } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatDate, formatNumber, statusLabel, statusTone } from '~/utils/format'
 
 const api = useApi()
@@ -25,7 +26,7 @@ onMounted(load)
       <div class="table-wrap">
         <table v-if="result.items.length" class="data-table">
           <thead><tr><th>Hóa đơn</th><th>Khách hàng</th><th>Ngày lập</th><th>Trạng thái</th><th class="text-right">Tổng tiền</th><th class="text-right">Còn nợ</th></tr></thead>
-          <tbody><tr v-for="invoice in result.items" :key="invoice.id"><td><NuxtLink class="cell-link mono" :to="`/invoices/${invoice.id}`">{{ invoice.code }}</NuxtLink><div class="cell-sub mono">Phiếu {{ invoice.repairOrderId.slice(-8) }}</div></td><td><div class="cell-main">{{ invoice.customerName }}</div><div class="cell-sub">{{ invoice.customerPhone }}</div></td><td>{{ formatDate(invoice.issueDate, true) }}</td><td><AppBadge :tone="statusTone(invoice.paymentStatus)">{{ statusLabel(invoice.paymentStatus) }}</AppBadge></td><td class="text-right cell-main">{{ formatCurrency(invoice.totalAmount) }}</td><td class="text-right" :class="{ debt: invoice.remainingAmount > 0 }">{{ formatCurrency(invoice.remainingAmount) }}</td></tr></tbody>
+          <tbody><tr v-for="invoice in result.items" :key="invoice.id"><td><NuxtLink class="cell-link mono" :to="`/invoices/${invoice.id}`">{{ invoice.code }}</NuxtLink><div><AppEntityLink class="cell-sub mono" :to="entityDetailRoute('RepairOrder', invoice.repairOrderId)">Phiếu {{ invoice.repairOrderId.slice(-8) }}</AppEntityLink></div></td><td><AppEntityLink class="cell-main" :to="entityDetailRoute('Customer', invoice.customerId)">{{ invoice.customerName }}</AppEntityLink><div class="cell-sub">{{ invoice.customerPhone }}</div></td><td>{{ formatDate(invoice.issueDate, true) }}</td><td><AppBadge :tone="statusTone(invoice.paymentStatus)">{{ statusLabel(invoice.paymentStatus) }}</AppBadge></td><td class="text-right cell-main">{{ formatCurrency(invoice.totalAmount) }}</td><td class="text-right" :class="{ debt: invoice.remainingAmount > 0 }">{{ formatCurrency(invoice.remainingAmount) }}</td></tr></tbody>
         </table>
         <AppEmpty v-else-if="!loading" :icon="ReceiptText" title="Chưa có hóa đơn" message="Hóa đơn được tạo từ chi tiết phiếu sửa chữa." />
         <div v-else class="card-body"><div class="loading-skeleton" style="height: 280px" /></div>

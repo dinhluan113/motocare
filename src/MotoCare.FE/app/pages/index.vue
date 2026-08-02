@@ -12,6 +12,7 @@ import {
   Wrench
 } from '@lucide/vue'
 import type { PagedResult, Part, PartReplacementReminder, RepairOrder } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatDate, formatNumber, statusLabel, statusTone } from '~/utils/format'
 
 interface Dashboard {
@@ -176,10 +177,10 @@ onMounted(load)
               class="overdue-row"
               tabindex="0"
               @click="navigateTo(`/repair-orders/${order.id}`)"
-              @keydown.enter="navigateTo(`/repair-orders/${order.id}`)"
+              @keydown.enter.self="navigateTo(`/repair-orders/${order.id}`)"
             >
               <td><NuxtLink class="cell-link mono" :to="`/repair-orders/${order.id}`">{{ order.code }}</NuxtLink></td>
-              <td><strong class="customer-name">{{ order.customerName }}</strong><span class="vehicle-plate mono">{{ order.licensePlate }}</span></td>
+              <td><AppEntityLink class="customer-name" :to="entityDetailRoute('Customer', order.customerId)">{{ order.customerName }}</AppEntityLink><div><AppEntityLink class="vehicle-plate mono" :to="entityDetailRoute('Vehicle', order.vehicleId)">{{ order.licensePlate }}</AppEntityLink></div></td>
               <td>{{ formatDate(order.expectedDeliveryAt, true) }}</td>
               <td><AppBadge tone="danger">{{ formatNumber(order.daysOverdue) }} ngày</AppBadge></td>
               <td><AppBadge :tone="statusTone(order.status)">{{ statusLabel(order.status) }}</AppBadge></td>
@@ -198,7 +199,7 @@ onMounted(load)
       <div class="table-wrap">
         <table class="data-table replacement-table">
           <thead><tr><th>Khách hàng / xe</th><th>Phụ tùng đã lắp</th><th>Lắp gần nhất</th><th>Hạn thay</th><th>Trạng thái</th><th aria-label="Xem khách hàng" /></tr></thead>
-          <tbody><tr v-for="item in dashboard.maintenance.partReplacement.reminders" :key="`${item.vehicleId}-${item.partId}`" class="replacement-row" tabindex="0" @click="navigateTo(`/customers/${item.customerId}`)" @keydown.enter="navigateTo(`/customers/${item.customerId}`)"><td><strong>{{ item.customerName }}</strong><span class="cell-sub mono">{{ item.licensePlate }} · ODO {{ item.currentOdometer !== undefined ? `${formatNumber(item.currentOdometer)} km` : 'chưa có' }}</span></td><td><strong>{{ item.partName }}</strong><span class="cell-sub mono">{{ item.partCode }}</span></td><td>{{ formatDate(item.installedAt) }}<span class="cell-sub">{{ item.installedOdometer !== undefined ? `${formatNumber(item.installedOdometer)} km` : 'Không có ODO' }}</span></td><td>{{ replacementDueText(item) }}</td><td><AppBadge :tone="item.isOverdue ? 'danger' : 'warning'">{{ replacementStatusText(item) }}</AppBadge></td><td class="detail-cell"><ChevronRight :size="17" /></td></tr></tbody>
+          <tbody><tr v-for="item in dashboard.maintenance.partReplacement.reminders" :key="`${item.vehicleId}-${item.partId}`" class="replacement-row" tabindex="0" @click="navigateTo(`/customers/${item.customerId}`)" @keydown.enter.self="navigateTo(`/customers/${item.customerId}`)"><td><AppEntityLink :to="entityDetailRoute('Customer', item.customerId)"><strong>{{ item.customerName }}</strong></AppEntityLink><div><AppEntityLink class="cell-sub mono" :to="entityDetailRoute('Vehicle', item.vehicleId)">{{ item.licensePlate }}</AppEntityLink><span class="cell-sub"> · ODO {{ item.currentOdometer !== undefined ? `${formatNumber(item.currentOdometer)} km` : 'chưa có' }}</span></div></td><td><AppEntityLink :to="entityDetailRoute('Part', item.partId)"><strong>{{ item.partName }}</strong></AppEntityLink><span class="cell-sub mono">{{ item.partCode }}</span></td><td><AppEntityLink :to="entityDetailRoute('RepairOrder', item.lastRepairOrderId)">{{ formatDate(item.installedAt) }}</AppEntityLink><span class="cell-sub">{{ item.installedOdometer !== undefined ? `${formatNumber(item.installedOdometer)} km` : 'Không có ODO' }}</span></td><td>{{ replacementDueText(item) }}</td><td><AppBadge :tone="item.isOverdue ? 'danger' : 'warning'">{{ replacementStatusText(item) }}</AppBadge></td><td class="detail-cell"><ChevronRight :size="17" /></td></tr></tbody>
         </table>
       </div>
     </section>

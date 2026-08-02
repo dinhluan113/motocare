@@ -21,12 +21,14 @@ import {
   Star,
   Users,
   WalletCards,
+  Warehouse,
   Wifi,
   WifiOff,
   Wrench,
   X
 } from '@lucide/vue'
 import { formatDate } from '~/utils/format'
+import { entityDetailRoute } from '~/utils/entityRoute'
 
 const route = useRoute()
 const auth = useAuth()
@@ -43,6 +45,7 @@ const allNavigation = [
   { label: 'Nhân viên', to: '/employees', icon: Wrench },
   { label: 'Nhà cung cấp', to: '/suppliers', icon: Truck },
   { label: 'Kho phụ tùng', to: '/inventory', icon: Package },
+  { label: 'Quản lý kho', to: '/warehouse-locations', icon: Warehouse },
   { label: 'Hóa đơn', to: '/invoices', icon: ReceiptText },
   { label: 'Thu chi', to: '/finance', icon: WalletCards },
   { label: 'Loyalty', to: '/loyalty', icon: Star },
@@ -85,11 +88,8 @@ const roleLabel = computed(() => {
 
 const openNotification = async (item: any) => {
   if (unread(item)) await notifications.markRead(item.id)
-  if (item.referenceType === 'RepairOrder') {
-    await navigateTo(`/repair-orders/${item.referenceId}`)
-  } else if (item.referenceType === 'Invoice') {
-    await navigateTo(`/invoices/${item.referenceId}`)
-  }
+  const target = entityDetailRoute(item.referenceType, item.referenceId)
+  if (target) await navigateTo(target)
   notificationOpen.value = false
 }
 

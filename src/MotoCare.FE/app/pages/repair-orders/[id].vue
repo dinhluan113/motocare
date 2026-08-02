@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import {
+  AlertTriangle,
   ArrowLeft,
   Bike,
   CheckCircle2,
+  ExternalLink,
   ImagePlus,
+  MapPin,
+  PackageCheck,
   Pencil,
   Plus,
   ReceiptText,
@@ -22,8 +26,10 @@ import type {
   RepairOrderStatus,
   RepairOrderItem,
   ServiceCategory,
-  Vehicle
+  Vehicle,
+  WarehouseLocation
 } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatDate, formatNumber, statusLabel, statusTone } from '~/utils/format'
 
 const route = useRoute()
@@ -40,6 +46,7 @@ const employees = ref<Employee[]>([])
 const parts = ref<Part[]>([])
 const partCategories = ref<PartCategory[]>([])
 const services = ref<ServiceCategory[]>([])
+const warehouseLocations = ref<WarehouseLocation[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const deletingItemId = ref('')
@@ -48,6 +55,10 @@ const editingItemId = ref('')
 const statusModal = ref(false)
 const invoiceModal = ref(false)
 const odometerModal = ref(false)
+const issueModal = ref(false)
+const issuingItemId = ref('')
+const issueItem = ref<RepairOrderItem>()
+const issueWarehouseLocationId = ref('')
 const conditionImageInput = ref<HTMLInputElement>()
 const maxConditionImages = 10
 const statusForm = reactive({ status: 'Inspecting' as RepairOrderStatus, note: '' })
@@ -59,7 +70,7 @@ const itemForm = reactive({
 })
 
 const orderId = computed(() => String(route.params.id))
-const isOrderLocked = computed(() => ['Completed', 'Delivered'].includes(order.value?.status || ''))
+const isOrderLocked = computed(() => !!order.value?.isDeleted || ['Completed', 'Delivered'].includes(order.value?.status || ''))
 const statusOptions: RepairOrderStatus[] = ['Received', 'Inspecting', 'AwaitingApproval', 'Repairing', 'AwaitingParts', 'Completed', 'Delivered', 'Cancelled']
 const canCreateInvoice = computed(() => {
   const activeItems = order.value?.items.filter(x => x.workStatus !== 'Cancelled') || []
@@ -84,13 +95,38 @@ const employeeOptions = computed(() => employees.value.filter(employee => !emplo
   code: employee.id,
   name: employee.fullName
 })))
+const issuePart = computed(() => parts.value.find(x => x.id === issueItem.value?.partId))
+const issueStockRows = computed(() => {
+  const part = issuePart.value
+  if (!part) return []
+  if (part.warehouseStocks?.length) {
+    return part.warehouseStocks.filter(x => x.quantityOnHand > 0).map(stock => ({
+      location: warehouseLocations.value.find(x => x.id === stock.warehouseLocationId && x.isActive && !x.isDeleted),
+      quantity: stock.quantityOnHand
+    })).filter(x => !!x.location)
+  }
+  const location = warehouseLocations.value.find(x => x.id === part.warehouseLocationId && x.isActive && !x.isDeleted)
+  return location && part.quantityOnHand > 0 ? [{ location, quantity: part.quantityOnHand }] : []
+})
+const issueRemaining = computed(() => (issuePart.value?.quantityOnHand || 0) - (issueItem.value?.quantity || 0))
+const selectedIssueStock = computed(() => issueStockRows.value.find(x =>
+  x.location?.id === issueWarehouseLocationId.value))
+const canIssueSelectedPart = computed(() => !!issueItem.value && !!issuePart.value
+  && !!issueWarehouseLocationId.value
+  && (selectedIssueStock.value?.quantity || 0) >= issueItem.value.quantity
+  && !issueItem.value.inventoryIssued
+  && issueItem.value.workStatus !== 'Cancelled'
+  && issueItem.value.quantity > 0
+  && issuePart.value.quantityOnHand >= issueItem.value.quantity)
 
 const load = async () => {
   loading.value = true
   try {
-    const current = await api.request<RepairOrder>(`/repair-orders/${orderId.value}`)
+    const current = await api.request<RepairOrder>(`/repair-orders/${orderId.value}`, {
+      query: { includeDeleted: true }
+    })
     order.value = current
-    const [c, v, e, p, pc, s, invoicePage] = await Promise.all([
+    const [c, v, e, p, pc, s, wl, invoicePage] = await Promise.all([
       api.request<Customer>(`/customers/${current.customerId}?includeDeleted=true`),
       api.request<Vehicle>(`/vehicles/${current.vehicleId}?includeDeleted=true`),
       isEmployee.value
@@ -100,12 +136,13 @@ const load = async () => {
       isEmployee.value
         ? Promise.resolve({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 } as PagedResult<PartCategory>)
         : api.request<PagedResult<PartCategory>>('/part-categories?pageSize=200&includeDeleted=true'),
+      api.request<PagedResult<ServiceCategory>>('/service-categories?pageSize=200&includeDeleted=true'),
+      api.request<PagedResult<WarehouseLocation>>('/warehouse-locations?pageSize=500&includeDeleted=true'),
       isEmployee.value
-        ? Promise.resolve({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 } as PagedResult<ServiceCategory>)
-        : api.request<PagedResult<ServiceCategory>>('/service-categories?pageSize=200&includeDeleted=true'),
-      api.request<PagedResult<Invoice>>('/invoices', {
-        query: { repairOrderId: current.id, pageSize: 10 }
-      })
+        ? Promise.resolve({ items: [], total: 0, page: 1, pageSize: 10, totalPages: 0 } as PagedResult<Invoice>)
+        : api.request<PagedResult<Invoice>>('/invoices', {
+            query: { repairOrderId: current.id, pageSize: 10 }
+          })
     ])
     customer.value = c
     vehicle.value = v
@@ -113,6 +150,7 @@ const load = async () => {
     parts.value = p.items
     partCategories.value = pc.items
     services.value = s.items
+    warehouseLocations.value = wl.items
     relatedInvoice.value = invoicePage.items.find(x => x.paymentStatus !== 'Cancelled')
   } finally { loading.value = false }
 }
@@ -211,6 +249,32 @@ const removeItem = async (item: RepairOrderItem) => {
   } finally { deletingItemId.value = '' }
 }
 
+const openIssuePart = (item: RepairOrderItem) => {
+  issueItem.value = item
+  issueWarehouseLocationId.value = issueStockRows.value.find(x =>
+    x.quantity >= item.quantity)?.location?.id || ''
+  issueModal.value = true
+}
+
+const confirmIssuePart = async () => {
+  if (!issueItem.value || !canIssueSelectedPart.value) return
+  issuingItemId.value = issueItem.value.id
+  try {
+    order.value = await api.request(`/repair-orders/${orderId.value}/items/${issueItem.value.id}/issue`, {
+      method: 'POST',
+      body: { warehouseLocationId: issueWarehouseLocationId.value }
+    })
+    if (issuePart.value) {
+      issuePart.value.quantityOnHand -= issueItem.value.quantity
+      const selectedStock = issuePart.value.warehouseStocks?.find(x =>
+        x.warehouseLocationId === issueWarehouseLocationId.value)
+      if (selectedStock) selectedStock.quantityOnHand -= issueItem.value.quantity
+    }
+    toast.success('Đã xuất phụ tùng', `${issueItem.value.description} · ${formatNumber(issueItem.value.quantity)} ${issuePart.value?.unit || ''}`)
+    issueModal.value = false
+  } finally { issuingItemId.value = '' }
+}
+
 const openStatus = () => {
   statusForm.status = order.value?.status === 'Received' ? 'Inspecting' : order.value?.status || 'Inspecting'
   statusForm.note = ''
@@ -266,7 +330,7 @@ const deletedLabel = (name?: string, isDeleted?: boolean) =>
 
 const employeeName = (id?: string) => {
   const employee = employees.value.find(x => x.id === id)
-  return employee ? deletedLabel(employee.fullName, employee.isDeleted) : 'Chưa phân công'
+  return employee ? deletedLabel(employee.fullName, employee.isDeleted) : id ? 'Nhân viên đã phân công' : 'Chưa phân công'
 }
 
 const removeOrder = async () => {
@@ -334,7 +398,7 @@ onMounted(load)
     <NuxtLink to="/repair-orders" class="back-link"><ArrowLeft :size="16" /> Danh sách phiếu sửa</NuxtLink>
     <div v-if="order" class="page-header">
       <div>
-        <div class="inline"><h1 class="page-title mono">{{ order.code }}</h1><AppBadge :tone="statusTone(order.status)">{{ statusLabel(order.status) }}</AppBadge><AppBadge :tone="order.priority === 'Urgent' ? 'danger' : order.priority === 'High' ? 'warning' : 'neutral'">{{ statusLabel(order.priority) }}</AppBadge></div>
+        <div class="inline"><h1 class="page-title mono">{{ order.code }}</h1><AppBadge v-if="order.isDeleted" tone="neutral">Đã xóa</AppBadge><AppBadge v-else :tone="statusTone(order.status)">{{ statusLabel(order.status) }}</AppBadge><AppBadge :tone="order.priority === 'Urgent' ? 'danger' : order.priority === 'High' ? 'warning' : 'neutral'">{{ statusLabel(order.priority) }}</AppBadge></div>
         <p class="page-subtitle">Tiếp nhận {{ formatDate(order.receivedAt, true) }} · Hẹn giao {{ formatDate(order.expectedDeliveryAt, true) }}</p>
       </div>
       <div v-if="!isEmployee" class="page-actions">
@@ -353,13 +417,14 @@ onMounted(load)
     <div v-else-if="loading" class="loading-skeleton" style="height: 110px" />
 
     <section v-if="isOrderLocked" class="locked-notice">
-      <CheckCircle2 :size="19" />
-      <div><strong>Phiếu sửa chữa đã hoàn tất và xuất hóa đơn</strong><span>Thông tin tiếp nhận, ODO, ảnh, hạng mục và tiến độ đã được khóa, không thể cập nhật.</span></div>
+      <AlertTriangle v-if="order?.isDeleted" :size="19" />
+      <CheckCircle2 v-else :size="19" />
+      <div><strong>{{ order?.isDeleted ? 'Phiếu sửa chữa đã bị xóa' : 'Phiếu sửa chữa đã hoàn tất và xuất hóa đơn' }}</strong><span>Thông tin tiếp nhận, ODO, ảnh, hạng mục và tiến độ chỉ được hiển thị để tra cứu, không thể cập nhật.</span></div>
     </section>
 
     <section v-if="order" class="summary-strip">
-      <div><UserRound :size="19" /><span>Khách hàng<strong>{{ deletedLabel(customer?.fullName, customer?.isDeleted) }}</strong><small>{{ customer?.phone }}</small></span></div>
-      <div><Bike :size="19" /><span>Phương tiện<strong>{{ deletedLabel(vehicle?.licensePlate, vehicle?.isDeleted) }}</strong><small>ODO {{ formatNumber(order.odometerIn ?? vehicle?.odometer ?? 0) }} km</small></span></div>
+      <div><UserRound :size="19" /><span>Khách hàng<strong><AppEntityLink :to="entityDetailRoute('Customer', order.customerId)">{{ deletedLabel(customer?.fullName, customer?.isDeleted) }}</AppEntityLink></strong><small>{{ customer?.phone }}</small></span></div>
+      <div><Bike :size="19" /><span>Phương tiện<strong><AppEntityLink :to="entityDetailRoute('Vehicle', order.vehicleId)">{{ deletedLabel(vehicle?.licensePlate, vehicle?.isDeleted) }}</AppEntityLink></strong><small>ODO {{ formatNumber(order.odometerIn ?? vehicle?.odometer ?? 0) }} km</small></span></div>
       <div><Wrench :size="19" /><span>Yêu cầu<strong>{{ order.customerRequest }}</strong><small>{{ order.diagnosis || 'Chưa có chẩn đoán' }}</small></span></div>
     </section>
 
@@ -376,7 +441,7 @@ onMounted(load)
       <div class="table-wrap">
         <table v-if="order?.items.length" class="data-table">
           <thead><tr><th>Nội dung</th><th>Phân công</th><th>Tiến độ</th><th class="text-right">SL</th><th class="text-right">Đơn giá</th><th class="text-right">Thành tiền</th><th v-if="!isEmployee" class="text-right">Thao tác</th></tr></thead>
-          <tbody><tr v-for="item in order.items" :key="item.id"><td><div class="cell-main">{{ item.description }}</div><div class="cell-sub">{{ item.itemType === 'Part' ? 'Phụ tùng' : 'Dịch vụ' }}<span v-if="item.inventoryIssued"> · Đã xuất kho</span></div></td><td>{{ employees.find(x => x.id === item.assignedEmployeeId)?.fullName || 'Chưa phân công' }}</td><td><select v-if="!isEmployee && !isOrderLocked" :value="item.workStatus" class="select work-select" @change="updateWork(item.id, ($event.target as HTMLSelectElement).value)"><option value="Pending">Chờ làm</option><option value="InProgress">Đang làm</option><option value="Completed">Hoàn thành</option><option value="Cancelled">Đã hủy</option></select><AppBadge v-else tone="neutral">{{ statusLabel(item.workStatus) }}</AppBadge></td><td class="text-right">{{ item.itemType === 'Service' ? '—' : formatNumber(item.quantity) }}</td><td class="text-right">{{ formatCurrency(item.unitPrice) }}</td><td class="text-right cell-main">{{ formatCurrency(item.lineTotal) }}</td><td v-if="!isEmployee" class="text-right"><div class="inline item-actions"><button class="btn btn-secondary btn-sm" :disabled="isOrderLocked || item.inventoryIssued || deletingItemId === item.id" :title="isOrderLocked ? 'Phiếu đã hoàn tất và được khóa' : item.inventoryIssued ? 'Phụ tùng đã xuất kho không thể cập nhật' : 'Cập nhật hạng mục'" @click="openEditItem(item)"><Pencil :size="14" /> Cập nhật</button><button class="icon-btn danger-button" :disabled="isOrderLocked || item.inventoryIssued || deletingItemId === item.id" :title="isOrderLocked ? 'Phiếu đã hoàn tất và được khóa' : item.inventoryIssued ? 'Phụ tùng đã xuất kho không thể xóa' : 'Xóa hạng mục'" @click="removeItem(item)"><Trash2 :size="15" /></button></div></td></tr></tbody>
+          <tbody><tr v-for="item in order.items" :key="item.id"><td><AppEntityLink class="cell-main" :to="item.itemType === 'Part' ? entityDetailRoute('Part', item.partId) : entityDetailRoute('ServiceCategory', item.serviceId)">{{ item.description }}</AppEntityLink><div class="cell-sub">{{ item.itemType === 'Part' ? 'Phụ tùng' : 'Dịch vụ' }}<span v-if="item.inventoryIssued"> · Đã xuất kho<span v-if="item.issuedWarehouseLocationCode"> · Vị trí <AppEntityLink :to="entityDetailRoute('WarehouseLocation', item.issuedWarehouseLocationId)"><strong class="mono issued-location">{{ item.issuedWarehouseLocationCode }}</strong></AppEntityLink></span></span><span v-else-if="item.itemType === 'Part' && parts.find(x => x.id === item.partId)?.warehouseLocationId"> · <AppEntityLink :to="entityDetailRoute('WarehouseLocation', parts.find(x => x.id === item.partId)?.warehouseLocationId)"><span class="mono">{{ warehouseLocations.find(x => x.id === parts.find(p => p.id === item.partId)?.warehouseLocationId)?.code }}</span></AppEntityLink></span></div><NuxtLink v-if="item.itemType === 'Part' && item.partId" class="part-detail-link" :to="`/inventory/${item.partId}`"><ExternalLink :size="13" /> Chi tiết phụ tùng</NuxtLink></td><td><AppEntityLink :to="isEmployee ? undefined : entityDetailRoute('Employee', item.assignedEmployeeId)">{{ employeeName(item.assignedEmployeeId) }}</AppEntityLink></td><td><select v-if="!isEmployee && !isOrderLocked" :value="item.workStatus" class="select work-select" @change="updateWork(item.id, ($event.target as HTMLSelectElement).value)"><option value="Pending">Chờ làm</option><option value="InProgress">Đang làm</option><option value="Completed">Hoàn thành</option><option value="Cancelled">Đã hủy</option></select><AppBadge v-else tone="neutral">{{ statusLabel(item.workStatus) }}</AppBadge></td><td class="text-right">{{ item.itemType === 'Service' ? '—' : formatNumber(item.quantity) }}</td><td class="text-right">{{ formatCurrency(item.unitPrice) }}</td><td class="text-right cell-main">{{ formatCurrency(item.lineTotal) }}</td><td v-if="!isEmployee" class="text-right"><div class="inline item-actions"><button v-if="item.itemType === 'Part' && !item.inventoryIssued" class="btn btn-accent btn-sm" :disabled="isOrderLocked || item.workStatus === 'Cancelled' || issuingItemId === item.id" title="Kiểm tra tồn và xuất phụ tùng" @click="openIssuePart(item)"><PackageCheck :size="14" /> Xuất hàng</button><AppBadge v-else-if="item.itemType === 'Part'" tone="success">Đã xuất</AppBadge><button class="btn btn-secondary btn-sm" :disabled="isOrderLocked || item.inventoryIssued || deletingItemId === item.id" :title="isOrderLocked ? 'Phiếu đã hoàn tất và được khóa' : item.inventoryIssued ? 'Phụ tùng đã xuất kho không thể cập nhật' : 'Cập nhật hạng mục'" @click="openEditItem(item)"><Pencil :size="14" /> Cập nhật</button><button class="icon-btn danger-button" :disabled="isOrderLocked || item.inventoryIssued || deletingItemId === item.id" :title="isOrderLocked ? 'Phiếu đã hoàn tất và được khóa' : item.inventoryIssued ? 'Phụ tùng đã xuất kho không thể xóa' : 'Xóa hạng mục'" @click="removeItem(item)"><Trash2 :size="15" /></button></div></td></tr></tbody>
           <tfoot><tr><td :colspan="isEmployee ? 5 : 6" class="text-right">Tổng dự kiến</td><td class="text-right total-cell">{{ formatCurrency(order.finalTotal) }}</td></tr></tfoot>
         </table>
         <AppEmpty v-else title="Chưa có hạng mục" message="Thêm công việc dịch vụ hoặc phụ tùng cần thay thế." />
@@ -384,7 +449,7 @@ onMounted(load)
     </section>
 
     <section v-if="order" class="detail-columns">
-      <article class="card"><header class="card-header"><h2 class="card-title">Thông tin kỹ thuật</h2></header><div class="card-body stack"><div class="info-row"><span>Nhân viên thực hiện</span><strong>{{ employeeName(order.serviceAdvisorId) }}</strong></div><div class="info-row"><span>Tình trạng ban đầu</span><strong>{{ order.vehicleCondition }}</strong></div><div class="info-row"><span>Chẩn đoán</span><strong>{{ order.diagnosis || 'Chưa cập nhật' }}</strong></div><div class="info-row"><span>Ngày bàn giao</span><strong>{{ formatDate(order.deliveredAt, true) }}</strong></div></div></article>
+      <article class="card"><header class="card-header"><h2 class="card-title">Thông tin kỹ thuật</h2></header><div class="card-body stack"><div class="info-row"><span>Nhân viên thực hiện</span><strong><AppEntityLink :to="isEmployee ? undefined : entityDetailRoute('Employee', order.serviceAdvisorId)">{{ employeeName(order.serviceAdvisorId) }}</AppEntityLink></strong></div><div class="info-row"><span>Tình trạng ban đầu</span><strong>{{ order.vehicleCondition }}</strong></div><div class="info-row"><span>Chẩn đoán</span><strong>{{ order.diagnosis || 'Chưa cập nhật' }}</strong></div><div class="info-row"><span>Ngày bàn giao</span><strong>{{ formatDate(order.deliveredAt, true) }}</strong></div></div></article>
       <article class="card"><header class="card-header"><h2 class="card-title">Lịch sử trạng thái</h2></header><div class="timeline"><div v-for="entry in [...order.statusHistory].reverse()" :key="entry.changedAt" class="timeline-row"><i /><div><strong>{{ statusLabel(entry.toStatus) }}</strong><span>{{ formatDate(entry.changedAt, true) }}</span><p v-if="entry.note">{{ entry.note }}</p></div></div></div></article>
     </section>
 
@@ -417,6 +482,22 @@ onMounted(load)
       <template #footer><button class="btn btn-secondary" @click="odometerModal = false">Hủy</button><button class="btn btn-primary" form="odometer-form" :disabled="saving">Cập nhật ODO</button></template>
     </AppModal>
 
+    <AppModal :open="issueModal" title="Kiểm tra và xuất phụ tùng" width="620px" @close="issueModal = false">
+      <div v-if="issueItem && issuePart" class="issue-panel">
+        <div class="issue-part-head"><div><span>Phụ tùng</span><strong>{{ issuePart.name }}</strong><small class="mono">{{ issuePart.code }}</small></div><NuxtLink class="btn btn-secondary btn-sm" :to="`/inventory/${issuePart.id}`"><ExternalLink :size="14" /> Xem chi tiết</NuxtLink></div>
+        <div class="issue-stats">
+          <div><span>Cần xuất</span><strong>{{ formatNumber(issueItem.quantity) }} {{ issuePart.unit }}</strong></div>
+          <div><span>Tồn hiện tại</span><strong :class="{ danger: issuePart.quantityOnHand < issueItem.quantity }">{{ formatNumber(issuePart.quantityOnHand) }} {{ issuePart.unit }}</strong></div>
+          <div><span>Còn lại sau xuất</span><strong :class="{ danger: issueRemaining < 0 }">{{ formatNumber(issueRemaining) }} {{ issuePart.unit }}</strong></div>
+        </div>
+        <div class="issue-location"><MapPin :size="19" /><div><span>Vị trí lấy hàng</span><div v-if="issueStockRows.length" class="issue-location-rows"><div v-for="row in issueStockRows" :key="row.location?.id" class="issue-location-option"><label :class="{ disabled: row.quantity < (issueItem?.quantity || 0) }"><input v-model="issueWarehouseLocationId" type="radio" name="issue-location" :value="row.location?.id" :disabled="row.quantity < (issueItem?.quantity || 0)" /><span><strong class="mono">{{ row.location?.code }}</strong><small>{{ formatNumber(row.quantity) }} {{ issuePart.unit }}</small></span></label><AppEntityLink class="issue-location-detail" :to="entityDetailRoute('WarehouseLocation', row.location?.id)" icon>Chi tiết</AppEntityLink></div></div><small v-else>Phụ tùng chưa có tồn tại ngăn kho đang hoạt động</small></div></div>
+        <div v-if="!canIssueSelectedPart" class="alert alert-warning"><AlertTriangle :size="18" /><div><strong>Chưa đủ điều kiện xuất kho</strong><span v-if="issuePart.quantityOnHand < issueItem.quantity">Tổng tồn kho không đủ số lượng cần xuất.</span><span v-else-if="!issueStockRows.length">Phụ tùng chưa có tồn tại ngăn kho đang hoạt động.</span><span v-else-if="!issueStockRows.some(x => x.quantity >= (issueItem?.quantity || 0))">Không có một ngăn nào đủ số lượng cần xuất; hãy chuyển hoặc bổ sung tồn kho.</span><span v-else-if="!issueWarehouseLocationId">Vui lòng chọn một vị trí lấy hàng.</span><span v-else>Hạng mục không còn hợp lệ để xuất kho.</span></div></div>
+        <div v-else class="issue-note">Khi xác nhận, tồn kho sẽ được trừ ngay. Lúc lập hóa đơn hệ thống nhận biết dòng này đã xuất và không trừ lần hai.</div>
+      </div>
+      <AppEmpty v-else title="Không tìm thấy phụ tùng" message="Phụ tùng có thể đã bị xóa hoặc không còn trong danh mục." />
+      <template #footer><button class="btn btn-secondary" :disabled="!!issuingItemId" @click="issueModal = false">Hủy</button><button class="btn btn-accent" :disabled="!canIssueSelectedPart || !!issuingItemId" @click="confirmIssuePart"><PackageCheck :size="15" /> {{ issuingItemId ? 'Đang xuất...' : 'Xác nhận xuất hàng' }}</button></template>
+    </AppModal>
+
     <AppModal :open="invoiceModal" title="Hoàn tất và xuất hóa đơn" description="Hệ thống sẽ tự trừ tồn phụ tùng, tạo hóa đơn và chuyển phiếu sửa chữa sang Hoàn tất." @close="invoiceModal = false">
       <form id="invoice-form" class="form-grid" @submit.prevent="createInvoice"><div class="field"><label>Kiểu giảm giá hóa đơn</label><select v-model="invoiceForm.discountType" class="select"><option value="Amount">Số tiền</option><option value="Percentage">Phần trăm (%)</option></select></div><div class="field"><label>Giá trị giảm</label><AppNumberInput v-model="invoiceForm.discountValue" class="input" min="0" :max="invoiceForm.discountType === 'Percentage' ? 100 : undefined" /></div><div class="field"><label>Coupon</label><input v-model.trim="invoiceForm.couponCode" class="input mono" placeholder="Nhập mã coupon (tùy chọn)" /></div><div class="field"><label>Thuế suất (%)</label><AppNumberInput v-model="invoiceForm.taxRate" class="input" min="0" max="100" /></div><div class="field span-2"><label>Ghi chú hóa đơn</label><textarea v-model="invoiceForm.notes" class="textarea" /></div></form>
       <template #footer><button class="btn btn-secondary" @click="invoiceModal = false">Hủy</button><button class="btn btn-accent" form="invoice-form" :disabled="saving">Hoàn tất & xuất hóa đơn</button></template>
@@ -443,6 +524,9 @@ onMounted(load)
 .empty-image-upload { display: grid; min-height: 120px; margin: 18px; place-items: center; gap: 7px; border: 1px dashed #9eb2c2; border-radius: 12px; color: var(--navy-800); background: #f7fafc; }
 .work-select { width: 135px; min-height: 34px; font-size: 12px; }
 .item-actions { justify-content: flex-end; flex-wrap: nowrap; }
+.issued-location { color: #805b09; font-weight: 850; }
+.part-detail-link { display: inline-flex; align-items: center; gap: 5px; margin-top: 7px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 7px; color: var(--navy-800); background: white; font-size: 10px; font-weight: 750; }.part-detail-link:hover { border-color: #9bb5c7; color: var(--blue); background: #f5f9fb; }
+.issue-panel { display: grid; gap: 16px; }.issue-part-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }.issue-part-head span,.issue-part-head strong,.issue-part-head small { display: block; }.issue-part-head span,.issue-stats span,.issue-location > div > span { color: var(--muted); font-size: 11px; }.issue-part-head strong { margin: 3px 0; color: var(--navy-950); font-size: 16px; }.issue-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }.issue-stats > div { padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: #f8fafb; }.issue-stats strong { display: block; margin-top: 5px; color: var(--navy-950); }.issue-stats strong.danger { color: var(--red); }.issue-location { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border-radius: 11px; color: #805b09; background: var(--amber-soft); }.issue-location > div { min-width: 0; flex: 1; }.issue-location strong,.issue-location small { display: block; }.issue-location strong { margin: 3px 0; font-size: 14px; }.issue-location small { color: #735d2b; }.issue-location-rows { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; }.issue-location-option { display: flex; align-items: center; gap: 7px; }.issue-location-option > label { display: flex; min-width: 125px; align-items: flex-start; gap: 8px; padding: 7px 9px; border: 1px solid rgb(128 91 9 / 18%); border-radius: 8px; background: rgb(255 255 255 / 48%); cursor: pointer; }.issue-location-option > label:has(input:checked) { border-color: #9a6b07; background: white; box-shadow: 0 0 0 2px rgb(154 107 7 / 14%); }.issue-location-option > label.disabled { cursor: not-allowed; opacity: .52; }.issue-location-rows input { flex: 0 0 auto; margin-top: 5px; accent-color: #956707; }.issue-location-rows label > span { min-width: 0; }.issue-location :deep(.issue-location-detail) { color: #805b09; font-size: 10px; }.issue-note { padding: 11px 13px; border-radius: 9px; color: #17664f; background: #eefaf5; font-size: 11px; }
 .data-table tfoot td { padding: 15px 16px; border-top: 2px solid var(--line); font-weight: 800; }
 .total-cell { color: var(--navy-950); font-size: 17px; }
 .detail-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
@@ -458,4 +542,5 @@ onMounted(load)
 .timeline-row span { color: var(--muted); font-size: 11px; }
 .timeline-row p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 @media (max-width: 900px) { .summary-strip, .detail-columns { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .issue-part-head { flex-direction: column; }.issue-stats { grid-template-columns: 1fr; }.item-actions { flex-wrap: wrap; } }
 </style>

@@ -111,6 +111,7 @@ builder.Services.AddScoped<PartReplacementReminderService>();
 builder.Services.AddScoped<ExcelExportService>();
 builder.Services.AddScoped<DemoDataService>();
 builder.Services.AddScoped<LocationService>();
+builder.Services.AddSingleton<MongoErrorLogWriter>();
 builder.Services.AddSingleton<ImageStorageService>();
 builder.Services.AddSingleton<SequenceService>();
 builder.Services.AddHostedService<MongoDbInitializer>();

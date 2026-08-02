@@ -62,11 +62,39 @@ public sealed class RepairOrdersController(
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetById(string id, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetById(
+        string id,
+        [FromQuery] bool includeDeleted = false,
+        CancellationToken cancellationToken = default)
     {
         var order = await context.Collection<RepairOrder>()
-            .Find(x => x.Id == id && !x.IsDeleted)
+            .Find(x => x.Id == id && (includeDeleted || !x.IsDeleted))
             .FirstOrDefaultAsync(cancellationToken);
+        if (order is not null && order.Items.Any(x =>
+                x.ItemType == RepairItemType.Part
+                && x.InventoryIssued
+                && string.IsNullOrWhiteSpace(x.IssuedWarehouseLocationCode)))
+        {
+            var issueTransactions = await context.Collection<InventoryTransaction>()
+                .Find(x => x.ReferenceType == nameof(RepairOrder)
+                    && x.ReferenceId == order.Id
+                    && x.Type == InventoryTransactionType.RepairIssue
+                    && !x.IsDeleted)
+                .SortBy(x => x.TransactionDate)
+                .ToListAsync(cancellationToken);
+            var usedTransactionIds = new HashSet<string>();
+            foreach (var item in order.Items.Where(x =>
+                         x.ItemType == RepairItemType.Part
+                         && x.InventoryIssued
+                         && string.IsNullOrWhiteSpace(x.IssuedWarehouseLocationCode)))
+            {
+                var transaction = issueTransactions.FirstOrDefault(x =>
+                    x.PartId == item.PartId && usedTransactionIds.Add(x.Id));
+                if (transaction is null) continue;
+                item.IssuedWarehouseLocationId = transaction.WarehouseLocationId;
+                item.IssuedWarehouseLocationCode = transaction.WarehouseLocationCode;
+            }
+        }
         return order is null
             ? NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy phiếu sửa chữa."))
             : Ok(ApiEnvelope.Ok(order));
@@ -166,6 +194,22 @@ public sealed class RepairOrdersController(
             itemId,
             request,
             cancellationToken)));
+    }
+
+    [HttpPost("{id}/items/{itemId}/issue")]
+    [Authorize(Roles = SecurityRoles.Management)]
+    public async Task<IActionResult> IssuePart(
+        string id,
+        string itemId,
+        IssueRepairPartRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(ApiEnvelope.Ok(await service.IssuePartAsync(
+            id,
+            itemId,
+            request,
+            UserId(),
+            cancellationToken), "Đã xuất phụ tùng khỏi kho."));
     }
 
     [HttpDelete("{id}")]

@@ -101,7 +101,8 @@ public sealed class ExpenseService(
                             voucher.Id,
                             $"Nhập hàng theo phiếu chi {voucher.Code}",
                             voucher.SupplierId,
-                            voucher.TransactionDate),
+                            voucher.TransactionDate,
+                            item.WarehouseLocationId),
                         userId,
                         cancellationToken);
                 }
@@ -172,6 +173,18 @@ public sealed class ExpenseService(
             }
 
             var part = parts.First(x => x.Id == item.PartId);
+            item.WarehouseLocationId ??= part.WarehouseLocationId
+                ?? part.WarehouseLocationIds.FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(item.WarehouseLocationId)
+                || !part.WarehouseLocationIds.Append(part.WarehouseLocationId ?? string.Empty)
+                    .Contains(item.WarehouseLocationId)
+                || !await context.Collection<WarehouseLocation>()
+                    .Find(x => x.Id == item.WarehouseLocationId && !x.IsDeleted && x.IsActive)
+                    .AnyAsync(cancellationToken))
+            {
+                throw new InvalidOperationException(
+                    $"Phụ tùng {part.Code} chưa có vị trí nhập kho hợp lệ.");
+            }
             if (string.IsNullOrWhiteSpace(item.Id)) item.Id = ObjectId.GenerateNewId().ToString();
             item.PartCode = part.Code;
             item.PartName = part.Name;

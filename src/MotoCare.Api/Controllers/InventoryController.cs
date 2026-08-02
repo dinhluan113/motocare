@@ -26,9 +26,24 @@ public sealed class InventoryController(
         {
             throw new InvalidOperationException("Nhập phụ tùng phải được lập bằng phiếu chi nhập hàng.");
         }
+        if (request.Type == InventoryTransactionType.Transfer)
+        {
+            throw new InvalidOperationException("Hãy sử dụng lệnh chuyển vị trí để chuyển phụ tùng giữa các ngăn.");
+        }
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "system";
         var transaction = await inventory.MoveAsync(request, userId, cancellationToken);
         return Ok(ApiEnvelope.Ok(transaction, "Đã cập nhật tồn kho."));
+    }
+
+    [HttpPost("transfers")]
+    [Authorize(Roles = SecurityRoles.Management)]
+    public async Task<IActionResult> Transfer(
+        StockTransferRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "system";
+        var transaction = await inventory.TransferAsync(request, userId, cancellationToken);
+        return Ok(ApiEnvelope.Ok(transaction, "Đã chuyển phụ tùng sang vị trí mới."));
     }
 
     [HttpGet("transactions")]

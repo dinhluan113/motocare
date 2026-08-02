@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Edit3, PackageSearch, Plus, Search, Trash2, Truck } from '@lucide/vue'
 import type { PagedResult, Supplier } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { emptyAddressDetails, formatAddressDetails, normalizeAddressDetails } from '~/utils/location'
 import { formatCurrency, formatDate, formatNumber } from '~/utils/format'
 
@@ -77,7 +78,7 @@ onMounted(load)
       <div class="table-wrap">
         <table v-if="result.items.length" class="data-table">
           <thead><tr><th>Nhà cung cấp</th><th>Liên hệ</th><th>Địa chỉ</th><th>Mã số thuế</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead>
-          <tbody><tr v-for="item in result.items" :key="item.id"><td><div class="cell-main">{{ item.name }}</div><div class="cell-sub mono">{{ item.code }}</div></td><td>{{ item.phone }}</td><td>{{ item.address || '—' }}</td><td class="mono">{{ item.taxCode || '—' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge></td><td class="text-right"><div class="inline row-actions"><button class="btn btn-secondary btn-sm" @click="viewStock(item)"><PackageSearch :size="14" /> Xem tồn</button><button class="icon-btn small-icon" title="Sửa" @click="openForm(item)"><Edit3 :size="14" /></button></div></td></tr></tbody>
+          <tbody><tr v-for="item in result.items" :key="item.id"><td><AppEntityLink block :to="entityDetailRoute('Supplier', item.id)"><span class="cell-main">{{ item.name }}</span><span class="cell-sub mono">{{ item.code }}</span></AppEntityLink></td><td>{{ item.phone }}</td><td>{{ item.address || '—' }}</td><td class="mono">{{ item.taxCode || '—' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge></td><td class="text-right"><div class="inline row-actions"><button class="btn btn-secondary btn-sm" @click="viewStock(item)"><PackageSearch :size="14" /> Xem tồn</button><button class="icon-btn small-icon" title="Sửa" @click="openForm(item)"><Edit3 :size="14" /></button></div></td></tr></tbody>
         </table>
         <AppEmpty v-else-if="!loading" :icon="Truck" title="Chưa có nhà cung cấp" message="Khai báo nhà cung cấp trước khi lập Phiếu nhập phụ tùng." />
       </div>

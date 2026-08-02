@@ -150,6 +150,17 @@ public sealed class PartCategory : BaseDocument
     public bool IsActive { get; set; } = true;
 }
 
+public sealed class WarehouseLocation : BaseDocument
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public int Rack { get; set; }
+    public int Level { get; set; }
+    public int Bin { get; set; }
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
 public sealed class ServiceCategory : BaseDocument
 {
     public string Code { get; set; } = string.Empty;
@@ -203,6 +214,23 @@ public sealed class SupplierPartStock : BaseDocument
     public DateTime? LastReceiptAt { get; set; }
 }
 
+public sealed class PartWarehouseStock
+{
+    public string WarehouseLocationId { get; set; } = string.Empty;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal QuantityOnHand { get; set; }
+}
+
+public sealed class InventoryLocationAllocation
+{
+    public string WarehouseLocationId { get; set; } = string.Empty;
+    public string WarehouseLocationCode { get; set; } = string.Empty;
+
+    [BsonRepresentation(BsonType.Decimal128)]
+    public decimal Quantity { get; set; }
+}
+
 [BsonIgnoreExtraElements]
 public sealed class Part : BaseDocument
 {
@@ -211,6 +239,9 @@ public sealed class Part : BaseDocument
     public string Name { get; set; } = string.Empty;
     public string PartBrandId { get; set; } = string.Empty;
     public string PartCategoryId { get; set; } = string.Empty;
+    public string? WarehouseLocationId { get; set; }
+    public List<string> WarehouseLocationIds { get; set; } = [];
+    public List<PartWarehouseStock> WarehouseStocks { get; set; } = [];
     public List<PartSpecificationValue> Specifications { get; set; } = [];
     public List<string> SupplierIds { get; set; } = [];
     public string Unit { get; set; } = "Cái";
@@ -242,7 +273,8 @@ public enum InventoryTransactionType
     RepairIssue,
     RepairReturn,
     AdjustmentIncrease,
-    AdjustmentDecrease
+    AdjustmentDecrease,
+    Transfer
 }
 
 public sealed class InventoryTransaction : BaseDocument
@@ -260,6 +292,13 @@ public sealed class InventoryTransaction : BaseDocument
     public string? ReferenceType { get; set; }
     public string? ReferenceId { get; set; }
     public string? SupplierId { get; set; }
+    public string? WarehouseLocationId { get; set; }
+    public string? WarehouseLocationCode { get; set; }
+    public string? FromWarehouseLocationId { get; set; }
+    public string? FromWarehouseLocationCode { get; set; }
+    public string? ToWarehouseLocationId { get; set; }
+    public string? ToWarehouseLocationCode { get; set; }
+    public List<InventoryLocationAllocation> LocationAllocations { get; set; } = [];
     public DateTime TransactionDate { get; set; } = DateTime.UtcNow;
     public string PerformedBy { get; set; } = string.Empty;
     public string? Notes { get; set; }
@@ -336,6 +375,8 @@ public sealed class RepairOrderItem
     public DateTime? CompletedAt { get; set; }
     public string? TechnicianNotes { get; set; }
     public bool InventoryIssued { get; set; }
+    public string? IssuedWarehouseLocationId { get; set; }
+    public string? IssuedWarehouseLocationCode { get; set; }
 }
 
 public sealed class RepairStatusHistory
@@ -578,6 +619,7 @@ public sealed class PurchaseExpenseItem
     public string PartId { get; set; } = string.Empty;
     public string PartCode { get; set; } = string.Empty;
     public string PartName { get; set; } = string.Empty;
+    public string? WarehouseLocationId { get; set; }
 
     [BsonRepresentation(BsonType.Decimal128)]
     public decimal Quantity { get; set; }
@@ -718,6 +760,26 @@ public sealed class AuditLog : BaseDocument
     public string? BeforeData { get; set; }
     public string? AfterData { get; set; }
     public string? IpAddress { get; set; }
+}
+
+public sealed class ApplicationErrorLog : BaseDocument
+{
+    public string TraceId { get; set; } = string.Empty;
+    public string Level { get; set; } = "Error";
+    public string ErrorCode { get; set; } = string.Empty;
+    public int StatusCode { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string ExceptionType { get; set; } = string.Empty;
+    public string? StackTrace { get; set; }
+    public string? InnerException { get; set; }
+    public string RequestMethod { get; set; } = string.Empty;
+    public string RequestPath { get; set; } = string.Empty;
+    public string? QueryString { get; set; }
+    public Dictionary<string, string?> RouteValues { get; set; } = [];
+    public string? UserId { get; set; }
+    public string? Username { get; set; }
+    public string? IpAddress { get; set; }
+    public string? UserAgent { get; set; }
 }
 
 public sealed class Sequence : BaseDocument

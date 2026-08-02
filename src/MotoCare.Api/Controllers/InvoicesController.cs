@@ -74,10 +74,13 @@ public sealed class InvoicesController(
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetById(string id, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetById(
+        string id,
+        [FromQuery] bool includeDeleted = false,
+        CancellationToken cancellationToken = default)
     {
         var invoice = await context.Collection<Invoice>()
-            .Find(x => x.Id == id && !x.IsDeleted)
+            .Find(x => x.Id == id && (includeDeleted || !x.IsDeleted))
             .FirstOrDefaultAsync(cancellationToken);
         return invoice is null
             ? NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy hóa đơn."))

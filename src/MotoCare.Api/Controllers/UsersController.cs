@@ -33,6 +33,33 @@ public sealed class UsersController(MongoDbContext context) : ControllerBase
         return Ok(ApiEnvelope.Ok(users));
     }
 
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetById(
+        string id,
+        [FromQuery] bool includeDeleted = false,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await context.Collection<AppUser>()
+            .Find(x => x.Id == id && (includeDeleted || !x.IsDeleted))
+            .Project(x => new
+            {
+                x.Id,
+                x.Username,
+                x.FullName,
+                x.EmployeeId,
+                x.Roles,
+                x.IsActive,
+                x.IsDeleted,
+                x.LastLoginAt,
+                x.CreatedAt,
+                x.UpdatedAt
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+        return user is null
+            ? NotFound(ApiEnvelope.Fail("NOT_FOUND", "Không tìm thấy tài khoản."))
+            : Ok(ApiEnvelope.Ok(user));
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create(
         CreateUserRequest request,

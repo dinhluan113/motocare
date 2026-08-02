@@ -12,4 +12,12 @@ public sealed record StockMovementRequest(
     string? ReferenceId,
     [MaxLength(2_000)] string? Notes,
     string? SupplierId = null,
-    DateTime? TransactionDate = null);
+    DateTime? TransactionDate = null,
+    string? WarehouseLocationId = null);
+
+public sealed record StockTransferRequest(
+    [Required] string PartId,
+    [Required] string FromWarehouseLocationId,
+    [Required] string ToWarehouseLocationId,
+    [Range(typeof(decimal), "0.0001", "999999999")] decimal Quantity,
+    [Required, MaxLength(2_000)] string Notes);

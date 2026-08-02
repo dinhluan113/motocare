@@ -102,6 +102,7 @@ public sealed class DemoDataService(
         await Insert(session, d.PartBrands, cancellationToken);
         await Insert(session, d.Suppliers, cancellationToken);
         await Insert(session, d.PartCategories, cancellationToken);
+        await Insert(session, d.WarehouseLocations, cancellationToken);
         await Insert(session, d.ServiceCategories, cancellationToken);
         await Insert(session, d.Parts, cancellationToken);
         await Insert(session, d.SupplierPartStocks, cancellationToken);
@@ -231,6 +232,20 @@ public sealed class DemoDataService(
             Category("DMPT-000006", "Điện & ắc quy", "Ắc quy, bóng đèn, cầu chì", [("VOLTAGE", "Điện áp", "V", true, PartSpecificationDataType.Number, Array.Empty<string>())]),
             Category("DMPT-000007", "Lọc gió", "Lọc gió động cơ", [("COMPATIBILITY", "Dòng xe", null, true, PartSpecificationDataType.Text, Array.Empty<string>())])
         ]);
+        for (var rack = 1; rack <= 3; rack++)
+        for (var level = 1; level <= 3; level++)
+        for (var bin = 1; bin <= 6; bin++)
+        {
+            d.WarehouseLocations.Add(new WarehouseLocation
+            {
+                Code = $"K{rack}-T{level}-N{bin}",
+                Name = $"Kệ {rack} · Tầng {level} · Ngăn {bin}",
+                Rack = rack,
+                Level = level,
+                Bin = bin,
+                Description = rack == 1 ? "Khu phụ tùng tiêu hao và quay vòng nhanh." : null
+            });
+        }
         d.ServiceCategories.AddRange([
             Service("DV-000001", "Thay nhớt động cơ", 50_000, "Kiểm tra mức nhớt và thay nhớt; chưa gồm vật tư."),
             Service("DV-000002", "Bảo dưỡng định kỳ", 180_000, "Kiểm tra phanh, lốp, truyền động, điện và siết ốc."),
@@ -272,7 +287,22 @@ public sealed class DemoDataService(
         {
             var p = prices[index];
             var cycle = replacementCycles[index];
-            d.Parts.Add(new Part { Code = p.Code, Barcode = $"893000{p.Code[^6..]}", Name = p.Name, PartBrandId = d.PartBrands[p.Brand].Id, PartCategoryId = d.PartCategories[p.Cat].Id, SupplierIds = [d.Suppliers[p.Supplier].Id], Unit = p.Unit, ImportPrice = p.Import, StockPrice = p.Stock, SalePrice = p.Sale, QuantityOnHand = p.Qty, MinQuantity = p.Min, ReplacementIntervalKm = cycle.Km, ReplacementIntervalMonths = cycle.Months, Notes = "Chu kỳ thay là dữ liệu tham khảo; cần điều chỉnh theo khuyến cáo của nhà sản xuất và điều kiện sử dụng.", Specifications = p.Specs.Select(x => new PartSpecificationValue { Code = x.Item1, Name = x.Item2, Unit = x.Item3, Value = x.Item4 }).ToList() });
+            var primaryLocation = d.WarehouseLocations[index % d.WarehouseLocations.Count];
+            var secondaryLocation = d.WarehouseLocations[(index + 18) % d.WarehouseLocations.Count];
+            var primaryQuantity = decimal.Ceiling(p.Qty * 0.7m);
+            var warehouseStocks = new List<PartWarehouseStock>
+            {
+                new() { WarehouseLocationId = primaryLocation.Id, QuantityOnHand = primaryQuantity }
+            };
+            if (p.Qty - primaryQuantity > 0)
+            {
+                warehouseStocks.Add(new PartWarehouseStock
+                {
+                    WarehouseLocationId = secondaryLocation.Id,
+                    QuantityOnHand = p.Qty - primaryQuantity
+                });
+            }
+            d.Parts.Add(new Part { Code = p.Code, Barcode = $"893000{p.Code[^6..]}", Name = p.Name, PartBrandId = d.PartBrands[p.Brand].Id, PartCategoryId = d.PartCategories[p.Cat].Id, WarehouseLocationId = primaryLocation.Id, WarehouseLocationIds = warehouseStocks.Select(x => x.WarehouseLocationId).ToList(), WarehouseStocks = warehouseStocks, SupplierIds = [d.Suppliers[p.Supplier].Id], Unit = p.Unit, ImportPrice = p.Import, StockPrice = p.Stock, SalePrice = p.Sale, QuantityOnHand = p.Qty, MinQuantity = p.Min, ReplacementIntervalKm = cycle.Km, ReplacementIntervalMonths = cycle.Months, Notes = "Chu kỳ thay là dữ liệu tham khảo; cần điều chỉnh theo khuyến cáo của nhà sản xuất và điều kiện sử dụng.", Specifications = p.Specs.Select(x => new PartSpecificationValue { Code = x.Item1, Name = x.Item2, Unit = x.Item3, Value = x.Item4 }).ToList() });
         }
 
         BuildOperations(d, currentAdmin, managerUser, staffUser, now, today);
@@ -452,11 +482,18 @@ public sealed class DemoDataService(
             }, today.AddDays(-30)));
             foreach (var issued in issuedItems)
             {
+                var issuedLocation = d.WarehouseLocations.Single(x =>
+                    x.Id == (part.WarehouseLocationId ?? part.WarehouseLocationIds.First()));
+                issued.Item.IssuedWarehouseLocationId = issuedLocation.Id;
+                issued.Item.IssuedWarehouseLocationCode = issuedLocation.Code;
                 d.InventoryTransactions.Add(Stamp(new InventoryTransaction
                 {
                     Code = NextCode(), PartId = part.Id, Type = InventoryTransactionType.RepairIssue,
                     Quantity = issued.Item.Quantity, UnitCost = part.StockPrice,
                     ReferenceType = nameof(RepairOrder), ReferenceId = issued.Order.Id,
+                    WarehouseLocationId = issuedLocation.Id,
+                    WarehouseLocationCode = issuedLocation.Code,
+                    LocationAllocations = [new InventoryLocationAllocation { WarehouseLocationId = issuedLocation.Id, WarehouseLocationCode = issuedLocation.Code, Quantity = issued.Item.Quantity }],
                     TransactionDate = issued.Order.ReceivedAt.AddHours(1), PerformedBy = admin.Id,
                     Notes = $"Xuất cho phiếu {issued.Order.Code}."
                 }, issued.Order.ReceivedAt.AddHours(1)));
@@ -468,7 +505,13 @@ public sealed class DemoDataService(
             });
         }
 
+        var transferPart = d.Parts[0];
+        var transferSource = d.WarehouseLocations.Single(x =>
+            x.Id == transferPart.WarehouseStocks[1].WarehouseLocationId);
+        var transferDestination = d.WarehouseLocations.Single(x =>
+            x.Id == transferPart.WarehouseStocks[0].WarehouseLocationId);
         d.InventoryTransactions.AddRange([
+            Stamp(new InventoryTransaction { Code = NextCode(), PartId = transferPart.Id, Type = InventoryTransactionType.Transfer, Quantity = 2, UnitCost = transferPart.StockPrice, ReferenceType = "WarehouseTransfer", FromWarehouseLocationId = transferSource.Id, FromWarehouseLocationCode = transferSource.Code, ToWarehouseLocationId = transferDestination.Id, ToWarehouseLocationCode = transferDestination.Code, WarehouseLocationCode = $"{transferSource.Code} → {transferDestination.Code}", TransactionDate = today.AddDays(-4), PerformedBy = admin.Id, Notes = "Chuyển sang ngăn gần khu vực tiếp nhận để thuận tiện cấp phát." }, today.AddDays(-4)),
             Stamp(new InventoryTransaction { Code = NextCode(), PartId = d.Parts[0].Id, Type = InventoryTransactionType.RepairReturn, Quantity = 1, UnitCost = d.Parts[0].StockPrice, ReferenceType = nameof(RepairOrder), ReferenceId = d.RepairOrders[3].Id, TransactionDate = today.AddDays(-3), PerformedBy = admin.Id, Notes = "Hoàn lại một chai chưa mở do đổi phương án sửa chữa." }, today.AddDays(-3)),
             Stamp(new InventoryTransaction { Code = NextCode(), PartId = d.Parts[0].Id, Type = InventoryTransactionType.AdjustmentDecrease, Quantity = 1, UnitCost = d.Parts[0].StockPrice, ReferenceType = "Stocktake", TransactionDate = today.AddDays(-2), PerformedBy = admin.Id, Notes = "Điều chỉnh một chai hư tem khi kiểm kê." }, today.AddDays(-2)),
             Stamp(new InventoryTransaction { Code = NextCode(), PartId = d.Parts[4].Id, Type = InventoryTransactionType.AdjustmentIncrease, Quantity = 2, UnitCost = d.Parts[4].StockPrice, ReferenceType = "Stocktake", TransactionDate = today.AddDays(-2), PerformedBy = admin.Id, Notes = "Phát hiện hai bugi để nhầm vị trí kệ." }, today.AddDays(-2)),
@@ -697,6 +740,7 @@ public sealed class DemoDataService(
         EnsureUnique(d.Customers, x => x.Code, "mã khách hàng");
         EnsureUnique(d.Vehicles, x => x.NormalizedLicensePlate, "biển số xe");
         EnsureUnique(d.Parts, x => x.Code, "mã phụ tùng");
+        EnsureUnique(d.WarehouseLocations, x => x.Code, "mã vị trí kho");
         EnsureUnique(d.RepairOrders, x => x.Code, "mã phiếu sửa chữa");
         EnsureUnique(d.Invoices, x => x.Code, "mã hóa đơn");
         EnsureUnique(d.Coupons, x => x.Code, "mã coupon");
@@ -709,6 +753,7 @@ public sealed class DemoDataService(
         var vehicleIds = d.Vehicles.Select(x => x.Id).ToHashSet();
         var partBrandIds = d.PartBrands.Select(x => x.Id).ToHashSet();
         var categoryIds = d.PartCategories.Select(x => x.Id).ToHashSet();
+        var warehouseLocationIds = d.WarehouseLocations.Select(x => x.Id).ToHashSet();
         var serviceIds = d.ServiceCategories.Select(x => x.Id).ToHashSet();
         var supplierIds = d.Suppliers.Select(x => x.Id).ToHashSet();
         var partIds = d.Parts.Select(x => x.Id).ToHashSet();
@@ -720,7 +765,11 @@ public sealed class DemoDataService(
         Require(d.Users.All(x => x.EmployeeId is null || employeeIds.Contains(x.EmployeeId)), "Tài khoản tham chiếu nhân viên không tồn tại.");
         Require(d.VehicleModels.All(x => brandIds.Contains(x.BrandId)), "Dòng xe tham chiếu hãng xe không tồn tại.");
         Require(d.Vehicles.All(x => customerIds.Contains(x.CustomerId) && modelIds.Contains(x.VehicleModelId)), "Xe tham chiếu khách hàng/dòng xe không tồn tại.");
-        Require(d.Parts.All(x => partBrandIds.Contains(x.PartBrandId) && categoryIds.Contains(x.PartCategoryId) && x.SupplierIds.All(supplierIds.Contains)), "Phụ tùng có tham chiếu danh mục không tồn tại.");
+        Require(d.Parts.All(x => partBrandIds.Contains(x.PartBrandId) && categoryIds.Contains(x.PartCategoryId) && (x.WarehouseLocationId is null || warehouseLocationIds.Contains(x.WarehouseLocationId)) && x.SupplierIds.All(supplierIds.Contains)), "Phụ tùng có tham chiếu danh mục hoặc vị trí kho không tồn tại.");
+        Require(d.Parts.All(x => x.WarehouseLocationIds.All(warehouseLocationIds.Contains)
+            && x.WarehouseStocks.All(stock => warehouseLocationIds.Contains(stock.WarehouseLocationId))
+            && x.WarehouseStocks.Sum(stock => stock.QuantityOnHand) == x.QuantityOnHand),
+            "Tồn kho theo ngăn của phụ tùng không hợp lệ.");
         Require(d.SupplierPartStocks.All(x => supplierIds.Contains(x.SupplierId) && partIds.Contains(x.PartId)), "Tồn theo nhà cung cấp có tham chiếu không tồn tại.");
         Require(d.InventoryTransactions.All(x => partIds.Contains(x.PartId) && (x.SupplierId is null || supplierIds.Contains(x.SupplierId))), "Giao dịch kho có tham chiếu không tồn tại.");
         Require(d.RepairOrders.All(x => customerIds.Contains(x.CustomerId) && vehicleIds.Contains(x.VehicleId)
@@ -793,6 +842,7 @@ public sealed class DemoDataService(
         public List<PartBrand> PartBrands { get; } = [];
         public List<Supplier> Suppliers { get; } = [];
         public List<PartCategory> PartCategories { get; } = [];
+        public List<WarehouseLocation> WarehouseLocations { get; } = [];
         public List<ServiceCategory> ServiceCategories { get; } = [];
         public List<SupplierPartStock> SupplierPartStocks { get; } = [];
         public List<Part> Parts { get; } = [];
@@ -815,7 +865,7 @@ public sealed class DemoDataService(
             ["Tài khoản"] = Users.Count, ["Nhân viên"] = Employees.Count, ["Khách hàng"] = Customers.Count,
             ["Xe máy"] = Vehicles.Count, ["Hãng và dòng xe"] = VehicleBrands.Count + VehicleModels.Count,
             ["Nhà cung cấp"] = Suppliers.Count, ["Phụ tùng"] = Parts.Count,
-            ["Danh mục"] = PartCategories.Count + ServiceCategories.Count + CashCategories.Count + PartBrands.Count,
+            ["Danh mục"] = PartCategories.Count + ServiceCategories.Count + CashCategories.Count + PartBrands.Count + WarehouseLocations.Count,
             ["Giao dịch kho"] = InventoryTransactions.Count, ["Phiếu sửa chữa"] = RepairOrders.Count,
             ["Hóa đơn"] = Invoices.Count, ["Thu chi"] = CashTransactions.Count, ["Coupon"] = Coupons.Count,
             ["Loyalty"] = LoyaltyTiers.Count + LoyaltyRules.Count + LoyaltyAccounts.Count + LoyaltyTransactions.Count,

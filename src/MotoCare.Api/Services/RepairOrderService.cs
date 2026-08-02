@@ -10,6 +10,7 @@ namespace MotoCare.Api.Services;
 public sealed class RepairOrderService(
     MongoDbContext context,
     SequenceService sequences,
+    InventoryService inventory,
     IHubContext<NotificationHub> hub)
 {
     private static readonly IReadOnlyDictionary<RepairOrderStatus, RepairOrderStatus[]> AllowedTransitions =
@@ -370,6 +371,127 @@ public sealed class RepairOrderService(
             order,
             cancellationToken: cancellationToken);
         return order;
+    }
+
+    public async Task<RepairOrder> IssuePartAsync(
+        string orderId,
+        string itemId,
+        IssueRepairPartRequest request,
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        var orders = context.Collection<RepairOrder>();
+        var order = await orders.Find(x => x.Id == orderId && !x.IsDeleted)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy phiếu sửa chữa.");
+        if (order.Status is RepairOrderStatus.Completed or RepairOrderStatus.Delivered or RepairOrderStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Không thể xuất kho cho phiếu đã hoàn tất, đã giao hoặc đã hủy.");
+        }
+
+        var item = order.Items.FirstOrDefault(x => x.Id == itemId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hạng mục sửa chữa.");
+        if (item.ItemType != RepairItemType.Part || string.IsNullOrWhiteSpace(item.PartId))
+        {
+            throw new InvalidOperationException("Chỉ có thể xuất kho cho hạng mục phụ tùng.");
+        }
+        if (item.WorkStatus == WorkStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Không thể xuất kho cho hạng mục đã hủy.");
+        }
+        if (item.InventoryIssued)
+        {
+            throw new InvalidOperationException("Phụ tùng này đã được xuất kho.");
+        }
+
+        var part = await context.Collection<Part>()
+            .Find(x => x.Id == item.PartId && !x.IsDeleted && x.IsActive)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Phụ tùng không tồn tại hoặc đã ngừng kinh doanh.");
+        if (part.QuantityOnHand < item.Quantity)
+        {
+            throw new InvalidOperationException(
+                $"Tồn kho không đủ. Hiện còn {part.QuantityOnHand} {part.Unit}, cần xuất {item.Quantity} {part.Unit}.");
+        }
+        var locationIds = (part.WarehouseLocationIds ?? [])
+            .Concat(part.WarehouseStocks?.Select(x => x.WarehouseLocationId) ?? [])
+            .Append(part.WarehouseLocationId ?? string.Empty)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct()
+            .ToList();
+        var selectedLocation = await context.Collection<WarehouseLocation>()
+            .Find(x => x.Id == request.WarehouseLocationId
+                && locationIds.Contains(x.Id)
+                && !x.IsDeleted
+                && x.IsActive)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (selectedLocation is null)
+        {
+            throw new InvalidOperationException(
+                "Vị trí xuất kho không hợp lệ hoặc đã ngừng sử dụng.");
+        }
+        var selectedLocationQuantity = part.WarehouseStocks?.FirstOrDefault(x =>
+                x.WarehouseLocationId == selectedLocation.Id)?.QuantityOnHand
+            ?? (part.WarehouseLocationId == selectedLocation.Id && !(part.WarehouseStocks?.Any() ?? false)
+                ? part.QuantityOnHand
+                : 0);
+        if (selectedLocationQuantity < item.Quantity)
+        {
+            throw new InvalidOperationException(
+                $"Ngăn {selectedLocation.Code} không đủ tồn kho. Hiện có {selectedLocationQuantity} {part.Unit}, cần xuất {item.Quantity} {part.Unit}.");
+        }
+
+        using var session = await context.Client.StartSessionAsync(cancellationToken: cancellationToken);
+        session.StartTransaction();
+        Part changedPart;
+        try
+        {
+            var movement = await inventory.MoveWithinTransactionAsync(
+                session,
+                new StockMovementRequest(
+                    item.PartId,
+                    InventoryTransactionType.RepairIssue,
+                    item.Quantity,
+                    0,
+                    nameof(RepairOrder),
+                    order.Id,
+                    $"Xuất cho {order.Code} · {item.Description}",
+                    WarehouseLocationId: selectedLocation.Id),
+                userId,
+                cancellationToken);
+            changedPart = movement.Part;
+
+            var issueFilter = Builders<RepairOrder>.Filter.And(
+                Builders<RepairOrder>.Filter.Eq(x => x.Id, order.Id),
+                Builders<RepairOrder>.Filter.Eq(x => x.IsDeleted, false),
+                Builders<RepairOrder>.Filter.ElemMatch(
+                    x => x.Items,
+                    x => x.Id == itemId && !x.InventoryIssued));
+            var issueUpdate = Builders<RepairOrder>.Update
+                .Set("items.$.inventoryIssued", true)
+                .Set("items.$.issuedWarehouseLocationId", selectedLocation.Id)
+                .Set("items.$.issuedWarehouseLocationCode", selectedLocation.Code)
+                .Set(x => x.UpdatedAt, DateTime.UtcNow);
+            var updateResult = await orders.UpdateOneAsync(
+                session,
+                issueFilter,
+                issueUpdate,
+                cancellationToken: cancellationToken);
+            if (updateResult.ModifiedCount != 1)
+            {
+                throw new InvalidOperationException("Phụ tùng đã được xuất bởi một thao tác khác.");
+            }
+            await session.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            if (session.IsInTransaction) await session.AbortTransactionAsync(cancellationToken);
+            throw;
+        }
+
+        await inventory.NotifyLowStockAsync(changedPart, cancellationToken);
+        return await orders.Find(x => x.Id == orderId && !x.IsDeleted)
+            .FirstAsync(cancellationToken);
     }
 
     public async Task<RepairOrder> ChangeStatusAsync(

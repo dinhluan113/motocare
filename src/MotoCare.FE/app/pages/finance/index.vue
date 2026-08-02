@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, CheckCircle2, Edit3, Eye, ImagePlus, PackagePlus, Plus, RotateCcw, Search, Tags, Trash2, WalletCards } from '@lucide/vue'
-import type { CashCategory, CashTransaction, PagedResult, Part, PurchaseExpenseItem, Supplier } from '~/types/api'
+import type { CashCategory, CashTransaction, PagedResult, Part, PurchaseExpenseItem, Supplier, WarehouseLocation } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatDate } from '~/utils/format'
 
 const api = useApi()
@@ -9,6 +10,7 @@ const toast = useToast()
 const result = ref<PagedResult<CashTransaction>>({ items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 })
 const suppliers = ref<Supplier[]>([])
 const parts = ref<Part[]>([])
+const warehouseLocations = ref<WarehouseLocation[]>([])
 const cashCategories = ref<CashCategory[]>([])
 const modalOpen = ref(false)
 const transactionFormTab = ref<'general' | 'proof'>('general')
@@ -44,7 +46,7 @@ const load = async (page = 1) => {
     toast.error('Khoảng ngày không hợp lệ', 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.')
     return
   }
-  const [transactions, supplierPage, partPage, categoryPage] = await Promise.all([
+  const [transactions, supplierPage, partPage, locationPage, categoryPage] = await Promise.all([
     api.request<PagedResult<CashTransaction>>('/cash-transactions', {
       query: {
         page,
@@ -59,6 +61,7 @@ const load = async (page = 1) => {
     }),
     api.request<PagedResult<Supplier>>('/suppliers?pageSize=200'),
     api.request<PagedResult<Part>>('/parts?pageSize=200'),
+    api.request<PagedResult<WarehouseLocation>>('/warehouse-locations?pageSize=500'),
     api.request<PagedResult<CashCategory>>('/cash-categories?pageSize=200')
   ])
   result.value = {
@@ -68,8 +71,27 @@ const load = async (page = 1) => {
       attachmentUrl: item.attachmentUrl ? mediaUrl(item.attachmentUrl) : undefined
     }))
   }
-  suppliers.value = supplierPage.items; parts.value = partPage.items; cashCategories.value = categoryPage.items
+  suppliers.value = supplierPage.items; parts.value = partPage.items; warehouseLocations.value = locationPage.items; cashCategories.value = categoryPage.items
 }
+const locationOptionsForPart = (partId: string) => {
+  const part = parts.value.find(x => x.id === partId)
+  const ids = part?.warehouseLocationIds?.length
+    ? part.warehouseLocationIds
+    : part?.warehouseLocationId ? [part.warehouseLocationId] : []
+  return ids.map(id => warehouseLocations.value.find(x => x.id === id))
+    .filter((x): x is WarehouseLocation => !!x && x.isActive && !x.isDeleted)
+    .map(x => ({ code: x.id, name: `${x.code} · ${x.name}` }))
+}
+const selectPurchasePart = (line: PurchaseExpenseItem, partId: string) => {
+  line.partId = partId
+  const options = locationOptionsForPart(partId)
+  const preferred = parts.value.find(x => x.id === partId)?.warehouseLocationId
+  line.warehouseLocationId = options.some(option => option.code === preferred)
+    ? preferred!
+    : options[0]?.code || ''
+}
+const purchaseLocation = (line: PurchaseExpenseItem) => warehouseLocations.value
+  .find(x => x.id === line.warehouseLocationId)
 const resetFilters = async () => {
   search.value = ''
   typeFilter.value = ''
@@ -81,7 +103,7 @@ const resetFilters = async () => {
 }
 const openForm = (purchase = false) => {
   transactionFormTab.value = 'general'
-  Object.assign(form, { code: '', type: 'Expense', purpose: purchase ? 'PartsPurchase' : 'Other', supplierId: '', cashCategoryId: '', category: '', transactionDate: new Date().toISOString().slice(0, 10), amount: 0, paymentMethod: 'Cash', description: purchase ? 'Nhập phụ tùng' : '', attachmentUrl: '', status: 'New', purchaseItems: purchase ? [{ partId: '', quantity: 1, unitCost: 0 }] : [] })
+  Object.assign(form, { code: '', type: 'Expense', purpose: purchase ? 'PartsPurchase' : 'Other', supplierId: '', cashCategoryId: '', category: '', transactionDate: new Date().toISOString().slice(0, 10), amount: 0, paymentMethod: 'Cash', description: purchase ? 'Nhập phụ tùng' : '', attachmentUrl: '', status: 'New', purchaseItems: purchase ? [{ partId: '', warehouseLocationId: '', quantity: 1, unitCost: 0 }] : [] })
   if (!purchase) form.cashCategoryId = categoryOptions.value[0]?.code || ''
   modalOpen.value = true
 }
@@ -90,13 +112,13 @@ watch(() => form.type, () => {
     form.cashCategoryId = categoryOptions.value[0]?.code || ''
   }
 })
-const addLine = () => form.purchaseItems.push({ partId: '', quantity: 1, unitCost: 0 })
+const addLine = () => form.purchaseItems.push({ partId: '', warehouseLocationId: '', quantity: 1, unitCost: 0 })
 const removeLine = (index: number) => form.purchaseItems.splice(index, 1)
 const save = async () => {
   const purchase = form.purpose === 'PartsPurchase'
   const missingGeneral = !form.transactionDate || !form.description.trim()
     || (purchase
-      ? !form.supplierId || form.purchaseItems.some(x => !x.partId || x.quantity <= 0 || x.unitCost <= 0)
+      ? !form.supplierId || form.purchaseItems.some(x => !x.partId || !x.warehouseLocationId || x.quantity <= 0 || x.unitCost <= 0)
       : !form.cashCategoryId || form.amount <= 0)
   if (missingGeneral) {
     transactionFormTab.value = 'general'
@@ -200,7 +222,7 @@ onMounted(load)
       <div class="filter-date"><label>Đến ngày</label><input v-model="toDate" class="input" type="date" /></div>
       <div class="filter-actions"><button class="btn btn-primary" type="submit">Áp dụng</button><button class="icon-btn" type="button" title="Xóa bộ lọc" @click="resetFilters"><RotateCcw :size="16" /></button></div>
     </form>
-    <section class="card"><header class="card-header"><h2 class="card-title">Sổ giao dịch</h2><span class="muted">{{ result.total }} giao dịch</span></header><div class="table-wrap"><table v-if="result.items.length" class="data-table"><thead><tr><th>Mã</th><th>Ngày</th><th>Loại / danh mục</th><th>Nội dung / nhà cung cấp</th><th>Trạng thái</th><th class="text-right">Số tiền</th><th class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in result.items" :key="item.id"><td class="mono">{{ item.code }}</td><td>{{ formatDate(item.transactionDate) }}</td><td><AppBadge :tone="item.type === 'Income' ? 'success' : 'danger'">{{ item.type === 'Income' ? 'Thu' : 'Chi' }}</AppBadge><div class="cell-sub">{{ item.category }}</div></td><td><div class="cell-main">{{ item.description }}</div><div v-if="item.purpose === 'PartsPurchase'" class="cell-sub">{{ supplierName(item.supplierId) }} · {{ item.purchaseItems.length }} phụ tùng</div><AppImageGallery v-if="item.attachmentUrl" class="table-proof" :images="[item.attachmentUrl]" alt="Ảnh đính kèm" compact /><div v-if="item.purchaseItems?.some(x => x.isLowProfit)" class="low-profit-text"><AlertTriangle :size="12" /> Có giá nhập làm lợi nhuận dưới 20%</div></td><td><AppBadge :tone="item.status === 'New' ? 'warning' : 'success'">{{ item.status === 'New' ? 'New' : 'Đã xác nhận' }}</AppBadge></td><td class="text-right cell-main" :class="item.type === 'Income' ? 'income' : 'expense'">{{ item.type === 'Income' ? '+' : '-' }}{{ formatCurrency(item.amount) }}</td><td class="text-right"><div class="inline row-actions"><button class="icon-btn" title="Xem chi tiết" @click="openDetail(item)"><Eye :size="15" /></button><button v-if="item.type === 'Expense' && item.status === 'New'" class="btn btn-primary btn-sm" :disabled="confirming === item.id" @click="confirmVoucher(item)"><CheckCircle2 :size="14" /> Xác nhận</button></div></td></tr></tbody></table><AppEmpty v-else :icon="WalletCards" title="Chưa có giao dịch" message="Lập phiếu thu hoặc phiếu chi đầu tiên." /></div><AppPagination :page="result.page" :total-pages="result.totalPages" :total="result.total" @change="load" /></section>
+    <section class="card"><header class="card-header"><h2 class="card-title">Sổ giao dịch</h2><span class="muted">{{ result.total }} giao dịch</span></header><div class="table-wrap"><table v-if="result.items.length" class="data-table"><thead><tr><th>Mã</th><th>Ngày</th><th>Loại / danh mục</th><th>Nội dung / nhà cung cấp</th><th>Trạng thái</th><th class="text-right">Số tiền</th><th class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in result.items" :key="item.id"><td><AppEntityLink class="mono cell-main" :to="entityDetailRoute('CashTransaction', item.id)">{{ item.code }}</AppEntityLink></td><td>{{ formatDate(item.transactionDate) }}</td><td><AppBadge :tone="item.type === 'Income' ? 'success' : 'danger'">{{ item.type === 'Income' ? 'Thu' : 'Chi' }}</AppBadge><div><AppEntityLink class="cell-sub" :to="entityDetailRoute('CashCategory', item.cashCategoryId)">{{ item.category }}</AppEntityLink></div></td><td><div class="cell-main">{{ item.description }}</div><div v-if="item.purpose === 'PartsPurchase'" class="cell-sub"><AppEntityLink :to="entityDetailRoute('Supplier', item.supplierId)">{{ supplierName(item.supplierId) }}</AppEntityLink> · {{ item.purchaseItems.length }} phụ tùng</div><AppImageGallery v-if="item.attachmentUrl" class="table-proof" :images="[item.attachmentUrl]" alt="Ảnh đính kèm" compact /><div v-if="item.purchaseItems?.some(x => x.isLowProfit)" class="low-profit-text"><AlertTriangle :size="12" /> Có giá nhập làm lợi nhuận dưới 20%</div></td><td><AppBadge :tone="item.status === 'New' ? 'warning' : 'success'">{{ item.status === 'New' ? 'New' : 'Đã xác nhận' }}</AppBadge></td><td class="text-right cell-main" :class="item.type === 'Income' ? 'income' : 'expense'">{{ item.type === 'Income' ? '+' : '-' }}{{ formatCurrency(item.amount) }}</td><td class="text-right"><div class="inline row-actions"><button class="icon-btn" title="Xem nhanh" @click="openDetail(item)"><Eye :size="15" /></button><button v-if="item.type === 'Expense' && item.status === 'New'" class="btn btn-primary btn-sm" :disabled="confirming === item.id" @click="confirmVoucher(item)"><CheckCircle2 :size="14" /> Xác nhận</button></div></td></tr></tbody></table><AppEmpty v-else :icon="WalletCards" title="Chưa có giao dịch" message="Lập phiếu thu hoặc phiếu chi đầu tiên." /></div><AppPagination :page="result.page" :total-pages="result.totalPages" :total="result.total" @change="load" /></section>
 
     <AppModal :open="modalOpen" :title="form.purpose === 'PartsPurchase' ? 'Phiếu nhập phụ tùng' : 'Ghi nhận thu chi'" :width="form.purpose === 'PartsPurchase' ? '920px' : '700px'" @close="modalOpen = false">
       <form id="cash-form" class="form-grid" @submit.prevent="save">
@@ -215,7 +237,8 @@ onMounted(load)
           <div class="span-2 purchase-lines">
             <div class="line-head"><strong>Phụ tùng nhập</strong><button class="btn btn-secondary btn-sm" type="button" @click="addLine"><Plus :size="14" /> Thêm dòng</button></div>
             <div v-for="(line, index) in form.purchaseItems" :key="index" class="purchase-line">
-              <div class="field"><label>Phụ tùng *</label><AppSearchSelect v-model="line.partId" :options="partOptions" required :clearable="false" placeholder="Chọn phụ tùng" /></div>
+              <div class="field"><label>Phụ tùng *</label><AppSearchSelect :model-value="line.partId" :options="partOptions" required :clearable="false" placeholder="Chọn phụ tùng" @update:model-value="selectPurchasePart(line, $event)" /></div>
+              <div class="field"><label>Ngăn nhập *</label><AppSearchSelect v-model="line.warehouseLocationId" :options="locationOptionsForPart(line.partId)" :disabled="!line.partId" required :clearable="false" placeholder="Chọn ngăn nhập" /></div>
               <div class="field"><label>Số lượng *</label><AppNumberInput v-model="line.quantity" class="input" min="0.01" step="0.01" required /></div>
               <div class="field"><label>Giá nhập *</label><AppNumberInput v-model="line.unitCost" class="input" min="0.01" required /></div>
               <div class="line-total"><span>Thành tiền</span><strong>{{ formatCurrency(line.quantity * line.unitCost) }}</strong></div>
@@ -250,8 +273,9 @@ onMounted(load)
           <div><span>Trạng thái</span><AppBadge :tone="selectedTransaction.status === 'New' ? 'warning' : 'success'">{{ selectedTransaction.status === 'New' ? 'New' : 'Đã xác nhận' }}</AppBadge></div>
           <div><span>Ngày giao dịch</span><strong>{{ formatDate(selectedTransaction.transactionDate, true) }}</strong></div>
           <div><span>Phương thức</span><strong>{{ paymentMethodName(selectedTransaction.paymentMethod) }}</strong></div>
-          <div><span>Danh mục</span><strong>{{ selectedTransaction.category }}</strong></div>
-          <div v-if="selectedTransaction.supplierId"><span>Nhà cung cấp</span><strong>{{ supplierName(selectedTransaction.supplierId) }}</strong></div>
+          <div><span>Danh mục</span><strong><AppEntityLink :to="entityDetailRoute('CashCategory', selectedTransaction.cashCategoryId)">{{ selectedTransaction.category }}</AppEntityLink></strong></div>
+          <div v-if="selectedTransaction.supplierId"><span>Nhà cung cấp</span><strong><AppEntityLink :to="entityDetailRoute('Supplier', selectedTransaction.supplierId)">{{ supplierName(selectedTransaction.supplierId) }}</AppEntityLink></strong></div>
+          <div v-if="selectedTransaction.referenceId"><span>Tham chiếu</span><strong><AppEntityLink :to="entityDetailRoute(selectedTransaction.referenceType, selectedTransaction.referenceId)">{{ selectedTransaction.referenceType || 'Dữ liệu liên quan' }}</AppEntityLink></strong></div>
           <div class="detail-wide"><span>Nội dung</span><strong>{{ selectedTransaction.description }}</strong></div>
           <div><span>Ngày tạo</span><strong>{{ formatDate(selectedTransaction.createdAt, true) }}</strong></div>
           <div v-if="selectedTransaction.confirmedAt"><span>Ngày xác nhận</span><strong>{{ formatDate(selectedTransaction.confirmedAt, true) }}</strong></div>
@@ -259,7 +283,7 @@ onMounted(load)
 
         <div v-if="selectedTransaction.purchaseItems?.length" class="detail-section">
           <h3>Phụ tùng nhập</h3>
-          <div class="table-wrap"><table class="data-table"><thead><tr><th>Phụ tùng</th><th class="text-right">Số lượng</th><th class="text-right">Giá nhập</th><th class="text-right">Giá bán</th><th class="text-right">Lợi nhuận</th><th class="text-right">Thành tiền</th></tr></thead><tbody><tr v-for="line in selectedTransaction.purchaseItems" :key="line.id || line.partId"><td><div class="cell-main">{{ line.partName }}</div><div class="cell-sub mono">{{ line.partCode }}</div></td><td class="text-right">{{ line.quantity }}</td><td class="text-right">{{ formatCurrency(line.unitCost) }}</td><td class="text-right">{{ formatCurrency(line.salePriceSnapshot || 0) }}</td><td class="text-right" :class="line.isLowProfit ? 'expense' : 'income'">{{ (line.profitRate || 0).toFixed(2) }}%</td><td class="text-right cell-main">{{ formatCurrency(line.lineTotal || line.quantity * line.unitCost) }}</td></tr></tbody></table></div>
+          <div class="table-wrap"><table class="data-table"><thead><tr><th>Phụ tùng</th><th>Vị trí nhập</th><th class="text-right">Số lượng</th><th class="text-right">Giá nhập</th><th class="text-right">Giá bán</th><th class="text-right">Lợi nhuận</th><th class="text-right">Thành tiền</th></tr></thead><tbody><tr v-for="line in selectedTransaction.purchaseItems" :key="line.id || line.partId"><td><AppEntityLink :to="entityDetailRoute('Part', line.partId)"><span class="cell-main">{{ line.partName }}</span><span class="cell-sub mono">{{ line.partCode }}</span></AppEntityLink></td><td><AppEntityLink class="mono" :to="entityDetailRoute('WarehouseLocation', purchaseLocation(line)?.id)">{{ purchaseLocation(line)?.code || 'Không lưu vị trí' }}</AppEntityLink></td><td class="text-right">{{ line.quantity }}</td><td class="text-right">{{ formatCurrency(line.unitCost) }}</td><td class="text-right">{{ formatCurrency(line.salePriceSnapshot || 0) }}</td><td class="text-right" :class="line.isLowProfit ? 'expense' : 'income'">{{ (line.profitRate || 0).toFixed(2) }}%</td><td class="text-right cell-main">{{ formatCurrency(line.lineTotal || line.quantity * line.unitCost) }}</td></tr></tbody></table></div>
         </div>
 
         <div v-if="selectedTransaction.attachmentUrl" class="detail-section">
@@ -273,7 +297,7 @@ onMounted(load)
 
     <AppModal :open="categoryModal" title="Danh mục thu chi" width="760px" @close="categoryModal = false">
       <div class="category-head"><p class="muted">Danh mục được dùng làm lựa chọn khi lập phiếu thu hoặc phiếu chi.</p><button class="btn btn-primary btn-sm" @click="openCategoryForm()"><Plus :size="14" /> Thêm danh mục</button></div>
-      <div class="table-wrap"><table v-if="cashCategories.length" class="data-table"><thead><tr><th>Mã</th><th>Tên danh mục</th><th>Áp dụng</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in cashCategories" :key="item.id"><td class="mono">{{ item.code }}</td><td><div class="cell-main">{{ item.name }}</div><div class="cell-sub">{{ item.description || '' }}</div></td><td>{{ item.scope === 'Income' ? 'Khoản thu' : item.scope === 'Expense' ? 'Khoản chi' : 'Thu và chi' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Đang dùng' : 'Tạm khóa' }}</AppBadge></td><td class="text-right"><div class="inline row-actions"><button class="icon-btn" title="Sửa" @click="openCategoryForm(item)"><Edit3 :size="15" /></button><button class="icon-btn danger-button" title="Xóa" @click="deleteCategory(item)"><Trash2 :size="15" /></button></div></td></tr></tbody></table><AppEmpty v-else :icon="Tags" title="Chưa có danh mục" message="Thêm danh mục trước khi ghi nhận thu chi." /></div>
+      <div class="table-wrap"><table v-if="cashCategories.length" class="data-table"><thead><tr><th>Mã</th><th>Tên danh mục</th><th>Áp dụng</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in cashCategories" :key="item.id"><td class="mono">{{ item.code }}</td><td><AppEntityLink class="cell-main" :to="entityDetailRoute('CashCategory', item.id)">{{ item.name }}</AppEntityLink><div class="cell-sub">{{ item.description || '' }}</div></td><td>{{ item.scope === 'Income' ? 'Khoản thu' : item.scope === 'Expense' ? 'Khoản chi' : 'Thu và chi' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Đang dùng' : 'Tạm khóa' }}</AppBadge></td><td class="text-right"><div class="inline row-actions"><button class="icon-btn" title="Sửa" @click="openCategoryForm(item)"><Edit3 :size="15" /></button><button class="icon-btn danger-button" title="Xóa" @click="deleteCategory(item)"><Trash2 :size="15" /></button></div></td></tr></tbody></table><AppEmpty v-else :icon="Tags" title="Chưa có danh mục" message="Thêm danh mục trước khi ghi nhận thu chi." /></div>
     </AppModal>
 
     <AppModal :open="categoryFormModal" :title="editingCategory ? 'Cập nhật danh mục' : 'Thêm danh mục thu chi'" @close="categoryFormModal = false">
@@ -290,7 +314,7 @@ onMounted(load)
 <style scoped>
 .cash-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }.cash-summary article { display: flex; align-items: center; gap: 13px; padding: 17px; border: 1px solid var(--line); border-radius: 13px; background: white; }.cash-summary span,.cash-summary strong { display: block; }.cash-summary span { color: var(--muted); font-size: 10px; }.cash-summary strong { color: var(--navy-950); font-size: 20px; }.income { color: var(--teal); }.expense { color: var(--red); }
 .finance-filters { display: grid; grid-template-columns: minmax(260px, 1.7fr) repeat(3, minmax(150px, 1fr)); align-items: end; gap: 10px; padding: 14px; }.filter-search { position: relative; }.filter-search svg { position: absolute; top: 50%; left: 12px; color: var(--muted); transform: translateY(-50%); }.filter-search .input { padding-left: 38px; }.filter-date { display: grid; gap: 4px; }.filter-date label { color: var(--muted); font-size: 10px; font-weight: 700; }.filter-actions { display: flex; align-items: center; gap: 7px; }
-.purchase-lines { display: grid; gap: 10px; }.line-head,.purchase-total { display: flex; align-items: center; justify-content: space-between; }.purchase-line { display: grid; grid-template-columns: minmax(220px, 2fr) 110px 150px 140px 38px; align-items: end; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: #f9fbfc; }.line-total { padding-bottom: 8px; text-align: right; }.line-total span,.line-total strong { display: block; }.line-total span { color: var(--muted); font-size: 10px; }.purchase-total { padding: 14px 4px 2px; }.purchase-total strong { color: var(--navy-950); font-size: 22px; }.profit-indicator { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: var(--teal); font-size: 11px; }.profit-indicator.warning,.low-profit-text { color: var(--red); }.low-profit-text { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 10px; }
+.purchase-lines { display: grid; gap: 10px; }.line-head,.purchase-total { display: flex; align-items: center; justify-content: space-between; }.purchase-line { display: grid; grid-template-columns: minmax(210px, 2fr) 125px 95px 135px 130px 38px; align-items: end; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: #f9fbfc; }.line-location { display: grid; min-height: 40px; grid-template-columns: 16px 1fr; align-content: center; column-gap: 5px; padding: 5px 8px; border-radius: 8px; color: #805b09; background: var(--amber-soft); }.line-location svg { grid-row: 1 / 3; align-self: center; }.line-location span { color: #876e35; font-size: 9px; }.line-location strong { font-size: 10px; }.line-location.missing { color: var(--red); background: #fff0ef; }.line-total { padding-bottom: 8px; text-align: right; }.line-total span,.line-total strong { display: block; }.line-total span { color: var(--muted); font-size: 10px; }.purchase-total { padding: 14px 4px 2px; }.purchase-total strong { color: var(--navy-950); font-size: 22px; }.profit-indicator { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: var(--teal); font-size: 11px; }.profit-indicator.warning,.low-profit-text { color: var(--red); }.low-profit-text { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 10px; }
 .radio-group { display: flex; min-height: 42px; align-items: center; gap: 8px; flex-wrap: wrap; }.radio-group label { display: flex; min-height: 38px; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--navy-900); background: white; cursor: pointer; }.radio-group label:has(input:checked) { border-color: var(--navy-900); background: #f0f5f8; }.radio-group input { accent-color: var(--navy-900); }.category-picker { display: grid; grid-template-columns: 1fr 40px; gap: 7px; }.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }.transfer-proof { display: grid; gap: 9px; }.upload-proof { display: grid; min-height: 135px; place-items: center; gap: 5px; padding: 18px; border: 1px dashed #9eb2c2; border-radius: 12px; color: var(--navy-800); background: #f7fafc; }.upload-proof span { color: var(--muted); font-size: 10px; }.replace-proof { width: max-content; }.table-proof { margin-top: 5px; }.category-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }.category-head p { margin: 0; }.row-actions { justify-content: flex-end; }.danger-button { color: var(--red); }
 .transaction-tabs { display: flex; gap: 5px; padding: 4px; border-radius: 11px; background: #eef2f5; }.transaction-tabs button { display: inline-flex; flex: 1; min-height: 38px; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-weight: 750; }.transaction-tabs button.active { color: var(--navy-950); background: white; box-shadow: 0 2px 7px rgb(10 31 51 / 8%); }.transaction-tabs span { display: grid; min-width: 20px; height: 20px; place-items: center; border-radius: 99px; color: var(--navy-900); background: var(--amber-soft); font-size: 9px; }
 .transaction-detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }.transaction-detail-grid > div { min-height: 66px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #f9fbfc; }.transaction-detail-grid span,.transaction-detail-grid strong { display: block; }.transaction-detail-grid span { margin-bottom: 5px; color: var(--muted); font-size: 10px; }.transaction-detail-grid strong { color: var(--navy-950); font-size: 12px; }.transaction-detail-grid .detail-wide { grid-column: 1 / -1; }.detail-section { margin-top: 18px; }.detail-section h3 { margin: 0 0 9px; color: var(--navy-950); font-size: 13px; }.detail-total { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; padding: 15px 17px; border-radius: 12px; background: var(--amber-soft); }.detail-total strong { font-size: 22px; }

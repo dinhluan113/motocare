@@ -130,6 +130,7 @@ public sealed class MongoDbInitializer(
         await CreateUniqueIndex(context.Collection<PartBrand>(), x => x.Code, "ux_part_brands_code", cancellationToken);
         await CreateUniqueIndex(context.Collection<Supplier>(), x => x.Code, "ux_suppliers_code", cancellationToken);
         await CreateUniqueIndex(context.Collection<PartCategory>(), x => x.Code, "ux_part_categories_code", cancellationToken);
+        await CreateUniqueIndex(context.Collection<WarehouseLocation>(), x => x.Code, "ux_warehouse_locations_code", cancellationToken);
         await CreateUniqueIndex(context.Collection<ServiceCategory>(), x => x.Code, "ux_service_categories_code", cancellationToken);
         await CreateUniqueIndex(context.Collection<Part>(), x => x.Code, "ux_parts_code", cancellationToken);
         await context.Collection<Part>().Indexes.CreateOneAsync(
@@ -176,6 +177,8 @@ public sealed class MongoDbInitializer(
                     new CreateIndexOptions { Name = "ix_audit_entity_created" })
             ],
             cancellationToken);
+
+        await CreateErrorLogIndexes(cancellationToken);
 
         await context.Collection<InventoryTransaction>().Indexes.CreateManyAsync(
             [
@@ -349,5 +352,24 @@ public sealed class MongoDbInitializer(
                 new CashCategory { Code = "LUONG", Name = "Lương nhân viên", Scope = CashCategoryScope.Expense }
             ],
             cancellationToken: cancellationToken);
+
     }
+
+    private Task CreateErrorLogIndexes(CancellationToken cancellationToken) =>
+        context.Collection<ApplicationErrorLog>().Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<ApplicationErrorLog>(
+                    Builders<ApplicationErrorLog>.IndexKeys.Descending(x => x.CreatedAt),
+                    new CreateIndexOptions { Name = "ix_motocare_logs_created_at" }),
+                new CreateIndexModel<ApplicationErrorLog>(
+                    Builders<ApplicationErrorLog>.IndexKeys.Ascending(x => x.TraceId),
+                    new CreateIndexOptions { Name = "ix_motocare_logs_trace_id" }),
+                new CreateIndexModel<ApplicationErrorLog>(
+                    Builders<ApplicationErrorLog>.IndexKeys
+                        .Ascending(x => x.StatusCode)
+                        .Ascending(x => x.RequestPath)
+                        .Descending(x => x.CreatedAt),
+                    new CreateIndexOptions { Name = "ix_motocare_logs_status_path_created_at" })
+            ],
+            cancellationToken: cancellationToken);
 }

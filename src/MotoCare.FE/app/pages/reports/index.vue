@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { BarChart3, Download, RefreshCw, TrendingUp } from '@lucide/vue'
+import type { LoyaltyTier } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatDate, formatNumber } from '~/utils/format'
 
 interface RevenueRow { period: string, revenue: number, collected: number, outstanding: number, discount: number, invoiceCount: number }
@@ -16,19 +18,21 @@ const revenue = ref<RevenueRow[]>([])
 const parts = ref<TopPart[]>([])
 const vehicles = ref<TopVehicle[]>([])
 const customers = ref<LoyalCustomer[]>([])
+const tiers = ref<LoyaltyTier[]>([])
 const activeTab = ref<'parts' | 'vehicles' | 'customers'>('parts')
 
 const query = computed(() => ({ from: from.value, to: `${to.value}T23:59:59`, groupBy: groupBy.value }))
 const load = async () => {
   loading.value = true
   try {
-    const [r, p, v, c] = await Promise.all([
+    const [r, p, v, c, t] = await Promise.all([
       api.request<RevenueRow[]>('/reports/revenue', { query: query.value }),
       api.request<TopPart[]>('/reports/top-parts', { query: { from: from.value, to: `${to.value}T23:59:59`, limit: 10 } }),
       api.request<TopVehicle[]>('/reports/top-vehicles', { query: { from: from.value, to: `${to.value}T23:59:59`, limit: 10 } }),
-      api.request<LoyalCustomer[]>('/reports/loyal-customers?limit=10')
+      api.request<LoyalCustomer[]>('/reports/loyal-customers?limit=10'),
+      api.request<LoyaltyTier[]>('/loyalty/tiers')
     ])
-    revenue.value = r; parts.value = p; vehicles.value = v; customers.value = c
+    revenue.value = r; parts.value = p; vehicles.value = v; customers.value = c; tiers.value = t
   } finally { loading.value = false }
 }
 const maxRevenue = computed(() => Math.max(...revenue.value.map(x => x.revenue), 1))
@@ -37,6 +41,7 @@ const totals = computed(() => revenue.value.reduce((acc, x) => ({
   outstanding: acc.outstanding + x.outstanding, invoices: acc.invoices + x.invoiceCount
 }), { revenue: 0, collected: 0, outstanding: 0, invoices: 0 }))
 const exportReport = (report: string) => api.download(`/reports/export?report=${report}&from=${from.value}&to=${to.value}T23:59:59`, `motocare-${report}-${to.value}.xlsx`)
+const tierByCode = (code?: string) => tiers.value.find(tier => tier.code === code)
 onMounted(load)
 </script>
 
@@ -56,9 +61,9 @@ onMounted(load)
     <section class="card">
       <header class="card-header"><div class="report-tabs"><button :class="{ active: activeTab === 'parts' }" @click="activeTab = 'parts'">Phụ tùng bán chạy</button><button :class="{ active: activeTab === 'vehicles' }" @click="activeTab = 'vehicles'">Xe sửa nhiều</button><button :class="{ active: activeTab === 'customers' }" @click="activeTab = 'customers'">Khách thân thiết</button></div><button class="btn btn-secondary btn-sm" @click="exportReport(activeTab === 'parts' ? 'top-parts' : activeTab === 'vehicles' ? 'top-vehicles' : 'loyal-customers')"><Download :size="15" /> Xuất Excel</button></header>
       <div class="table-wrap">
-        <table v-if="activeTab === 'parts'" class="data-table"><thead><tr><th>#</th><th>Phụ tùng</th><th class="text-right">Số lượng</th><th class="text-right">Số hóa đơn</th><th class="text-right">Doanh thu</th></tr></thead><tbody><tr v-for="(item, i) in parts" :key="`${item.partId}-${i}`"><td>{{ i + 1 }}</td><td class="cell-main">{{ item.description }}</td><td class="text-right">{{ formatNumber(item.quantity) }}</td><td class="text-right">{{ item.invoiceCount }}</td><td class="text-right cell-main">{{ formatCurrency(item.revenue) }}</td></tr></tbody></table>
-        <table v-else-if="activeTab === 'vehicles'" class="data-table"><thead><tr><th>#</th><th>Biển số</th><th class="text-right">Lượt sửa</th><th>Lần gần nhất</th><th class="text-right">Tổng giá trị</th></tr></thead><tbody><tr v-for="(item, i) in vehicles" :key="item.vehicleId"><td>{{ i + 1 }}</td><td class="cell-main mono">{{ item.licensePlate }}</td><td class="text-right">{{ item.repairCount }}</td><td>{{ formatDate(item.lastRepairAt) }}</td><td class="text-right cell-main">{{ formatCurrency(item.totalValue) }}</td></tr></tbody></table>
-        <table v-else class="data-table"><thead><tr><th>#</th><th>Khách hàng</th><th>Hạng</th><th class="text-right">Chi tiêu</th><th class="text-right">Điểm</th></tr></thead><tbody><tr v-for="(item, i) in customers" :key="item.customerId"><td>{{ i + 1 }}</td><td><NuxtLink class="cell-main customer-link" :to="`/customers/${item.customerId}`">{{ item.fullName }}</NuxtLink><div class="cell-sub">{{ item.phone }}</div></td><td><AppBadge tone="warning">{{ item.tierCode }}</AppBadge></td><td class="text-right">{{ formatCurrency(item.eligibleSpend) }}</td><td class="text-right cell-main">{{ formatNumber(item.availablePoints) }}</td></tr></tbody></table>
+        <table v-if="activeTab === 'parts'" class="data-table"><thead><tr><th>#</th><th>Phụ tùng</th><th class="text-right">Số lượng</th><th class="text-right">Số hóa đơn</th><th class="text-right">Doanh thu</th></tr></thead><tbody><tr v-for="(item, i) in parts" :key="`${item.partId}-${i}`"><td>{{ i + 1 }}</td><td><AppEntityLink class="cell-main" :to="entityDetailRoute('Part', item.partId)">{{ item.description }}</AppEntityLink></td><td class="text-right">{{ formatNumber(item.quantity) }}</td><td class="text-right">{{ item.invoiceCount }}</td><td class="text-right cell-main">{{ formatCurrency(item.revenue) }}</td></tr></tbody></table>
+        <table v-else-if="activeTab === 'vehicles'" class="data-table"><thead><tr><th>#</th><th>Biển số</th><th class="text-right">Lượt sửa</th><th>Lần gần nhất</th><th class="text-right">Tổng giá trị</th></tr></thead><tbody><tr v-for="(item, i) in vehicles" :key="item.vehicleId"><td>{{ i + 1 }}</td><td><AppEntityLink class="cell-main mono" :to="entityDetailRoute('Vehicle', item.vehicleId)">{{ item.licensePlate }}</AppEntityLink></td><td class="text-right">{{ item.repairCount }}</td><td>{{ formatDate(item.lastRepairAt) }}</td><td class="text-right cell-main">{{ formatCurrency(item.totalValue) }}</td></tr></tbody></table>
+        <table v-else class="data-table"><thead><tr><th>#</th><th>Khách hàng</th><th>Hạng</th><th class="text-right">Chi tiêu</th><th class="text-right">Điểm</th></tr></thead><tbody><tr v-for="(item, i) in customers" :key="item.customerId"><td>{{ i + 1 }}</td><td><NuxtLink class="cell-main customer-link" :to="`/customers/${item.customerId}`">{{ item.fullName }}</NuxtLink><div class="cell-sub">{{ item.phone }}</div></td><td><AppEntityLink :to="entityDetailRoute('LoyaltyTier', tierByCode(item.tierCode)?.id)"><AppBadge tone="warning">{{ item.tierCode }}</AppBadge></AppEntityLink></td><td class="text-right">{{ formatCurrency(item.eligibleSpend) }}</td><td class="text-right cell-main">{{ formatNumber(item.availablePoints) }}</td></tr></tbody></table>
       </div>
     </section>
   </div>

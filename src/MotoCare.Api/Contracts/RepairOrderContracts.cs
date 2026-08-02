@@ -56,3 +56,6 @@ public sealed record ChangeRepairStatusRequest(
 public sealed record UpdateRepairWorkRequest(
     WorkStatus Status,
     [MaxLength(2_000)] string? TechnicianNotes);
+
+public sealed record IssueRepairPartRequest(
+    [Required] string WarehouseLocationId);

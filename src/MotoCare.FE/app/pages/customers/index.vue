@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Edit3, Plus, Search, Trash2, UserRound, Users } from '@lucide/vue'
-import type { Customer, PagedResult } from '~/types/api'
+import type { Customer, LoyaltyTier, PagedResult } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatNumber } from '~/utils/format'
 
 const api = useApi()
@@ -8,6 +9,7 @@ const auth = useAuth()
 const toast = useToast()
 const isEmployee = computed(() => auth.hasAnyRole('Employee'))
 const result = ref<PagedResult<Customer>>({ items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 })
+const tiers = ref<LoyaltyTier[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const modalOpen = ref(false)
@@ -35,6 +37,14 @@ const load = async (page = result.value.page) => {
     loading.value = false
   }
 }
+
+const loadTiers = async () => {
+  tiers.value = isEmployee.value
+    ? []
+    : await api.request<LoyaltyTier[]>('/loyalty/tiers')
+}
+
+const tierByCode = (code?: string) => tiers.value.find(tier => tier.code === code)
 
 let timer: ReturnType<typeof setTimeout>
 watch(search, () => {
@@ -96,7 +106,7 @@ const remove = async () => {
   await load(result.value.page)
 }
 
-onMounted(() => load(1))
+onMounted(() => Promise.all([load(1), loadTiers()]))
 </script>
 
 <template>
@@ -148,7 +158,9 @@ onMounted(() => load(1))
                 <div class="cell-sub">{{ customer.email || customer.address || '—' }}</div>
               </td>
               <td>
-                <div class="cell-main">{{ customer.loyaltyTierCode || 'MEMBER' }}</div>
+                <AppEntityLink class="cell-main" :to="entityDetailRoute('LoyaltyTier', tierByCode(customer.loyaltyTierCode)?.id)">
+                  {{ customer.loyaltyTierCode || 'MEMBER' }}
+                </AppEntityLink>
                 <div class="cell-sub">{{ formatNumber(customer.loyaltyPointBalance || 0) }} điểm</div>
               </td>
               <td>

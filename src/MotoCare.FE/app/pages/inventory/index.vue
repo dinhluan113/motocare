@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, Edit3, History, Package, Plus, Search, SlidersHorizontal, Trash2 } from '@lucide/vue'
-import type { CashTransaction, InventoryTransaction, PagedResult, Part, PartBrand, PartCategory, Supplier } from '~/types/api'
+import type { CashTransaction, InventoryTransaction, PagedResult, Part, PartBrand, PartCategory, Supplier, WarehouseLocation } from '~/types/api'
+import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatDate, formatNumber } from '~/utils/format'
 interface SpecificationValue { code: string, name: string, unit?: string, value: string }
 
@@ -12,6 +13,7 @@ const result = ref<PagedResult<Part>>({ items: [], total: 0, page: 1, pageSize: 
 const brands = ref<PartBrand[]>([])
 const categories = ref<PartCategory[]>([])
 const suppliers = ref<Supplier[]>([])
+const warehouseLocations = ref<WarehouseLocation[]>([])
 const vouchers = ref<CashTransaction[]>([])
 const historyItems = ref<InventoryTransaction[]>([])
 const search = ref('')
@@ -26,7 +28,7 @@ const historyModal = ref(false)
 const editing = ref<Part>()
 const selectedPart = ref<Part>()
 const form = reactive({
-  code: '', barcode: '', name: '', partBrandId: '', partCategoryId: '', unit: '',
+  code: '', barcode: '', name: '', partBrandId: '', partCategoryId: '', warehouseLocationId: '', warehouseLocationIds: [] as string[], unit: '',
   specifications: [] as SpecificationValue[], salePrice: 0, minQuantity: 0,
   replacementIntervalKm: null as number | null, replacementIntervalMonths: null as number | null,
   notes: '', isActive: true
@@ -49,11 +51,12 @@ const setSpecificationValue = (index: number, value: string) => { specificationV
 const load = async (page = 1) => {
   loading.value = true
   try {
-    const [partsPage, brandPage, categoryPage, supplierPage, voucherPage] = await Promise.all([
+    const [partsPage, brandPage, categoryPage, supplierPage, locationPage, voucherPage] = await Promise.all([
       api.request<PagedResult<Part>>('/parts', { query: { search: search.value || undefined, categoryId: categoryId.value || undefined, supplierId: supplierId.value || undefined, page, pageSize: 20 } }),
       api.request<PagedResult<PartBrand>>('/part-brands?pageSize=200&includeDeleted=true'),
       api.request<PagedResult<PartCategory>>('/part-categories?pageSize=200&includeDeleted=true'),
       api.request<PagedResult<Supplier>>('/suppliers?pageSize=200&includeDeleted=true'),
+      api.request<PagedResult<WarehouseLocation>>('/warehouse-locations?pageSize=500&includeDeleted=true'),
       isEmployee.value
         ? Promise.resolve({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 } as PagedResult<CashTransaction>)
         : api.request<PagedResult<CashTransaction>>('/cash-transactions?pageSize=200')
@@ -62,6 +65,7 @@ const load = async (page = 1) => {
     brands.value = brandPage.items.map(x => ({ ...x, name: `${x.name}${x.isDeleted ? ' (đã xóa)' : ''}` }))
     categories.value = categoryPage.items.map(x => ({ ...x, name: `${x.name}${x.isDeleted ? ' (đã xóa)' : ''}` }))
     suppliers.value = supplierPage.items.map(x => ({ ...x, name: `${x.name}${x.isDeleted ? ' (đã xóa)' : ''}` }))
+    warehouseLocations.value = locationPage.items
     vouchers.value = voucherPage.items
   } finally { loading.value = false }
 }
@@ -77,6 +81,10 @@ const openPart = (part?: Part) => {
   Object.assign(form, {
     code: part?.code || '', barcode: part?.barcode || '', name: part?.name || '',
     partBrandId: part?.partBrandId || '', partCategoryId: targetCategoryId,
+    warehouseLocationId: part?.warehouseLocationId || '',
+    warehouseLocationIds: part?.warehouseLocationIds?.length
+      ? [...part.warehouseLocationIds]
+      : part?.warehouseLocationId ? [part.warehouseLocationId] : [],
     specifications: definitions.map(definition => ({
       code: definition.code, name: definition.name, unit: definition.unit,
       value: normalizeSpecificationValue(definition.dataType, part?.specifications?.find(x => x.code === definition.code)?.value)
@@ -143,10 +151,34 @@ const saveAdjustment = async () => {
     toast.success('Đã điều chỉnh tồn kho', selectedPart.value?.name); adjustmentModal.value = false; await load(result.value.page)
   } finally { saving.value = false }
 }
+const loadAllTransactions = async (partId: string) => {
+  const firstPage = await api.request<PagedResult<InventoryTransaction>>('/inventory/transactions', {
+    query: { partId, page: 1, pageSize: 200 }
+  })
+  const remainingPages = await Promise.all(Array.from(
+    { length: Math.max(0, firstPage.totalPages - 1) },
+    (_, index) => api.request<PagedResult<InventoryTransaction>>('/inventory/transactions', {
+      query: { partId, page: index + 2, pageSize: 200 }
+    })
+  ))
+  return [firstPage, ...remainingPages].flatMap(page => page.items)
+}
+const loadMissingVouchers = async (items: InventoryTransaction[]) => {
+  if (isEmployee.value) return
+  const knownIds = new Set(vouchers.value.map(voucher => voucher.id))
+  const ids = [...new Set(items
+    .filter(item => item.referenceType?.toLowerCase() === 'cashtransaction')
+    .map(item => item.referenceId)
+    .filter((id): id is string => Boolean(id) && !knownIds.has(id)))]
+  const results = await Promise.allSettled(ids.map(id =>
+    api.request<CashTransaction>(`/cash-transactions/${id}`, { query: { includeDeleted: true } })))
+  vouchers.value.push(...results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []))
+}
 const openHistory = async (part: Part) => {
   selectedPart.value = part
-  const page = await api.request<PagedResult<InventoryTransaction>>('/inventory/transactions', { query: { partId: part.id, pageSize: 200 } })
-  historyItems.value = page.items.filter(x => x.type === 'Receipt')
+  const transactions = await loadAllTransactions(part.id)
+  historyItems.value = transactions.filter(x => x.type === 'Receipt')
+  await loadMissingVouchers(historyItems.value)
   historyModal.value = true
 }
 const referenceName = (items: Array<{ id: string, name: string, isDeleted: boolean }>, id?: string, fallback = '—') => {
@@ -156,6 +188,20 @@ const referenceName = (items: Array<{ id: string, name: string, isDeleted: boole
 const supplierName = (id?: string) => referenceName(suppliers.value, id)
 const voucherCode = (id?: string) => vouchers.value.find(x => x.id === id)?.code || '—'
 const specificationValue = (index: number) => form.specifications[index] as SpecificationValue
+const partLocations = (part: Part) => {
+  const ids = part.warehouseLocationIds?.length
+    ? part.warehouseLocationIds
+    : part.warehouseLocationId ? [part.warehouseLocationId] : []
+  return ids.map(id => ({ id, location: warehouseLocations.value.find(x => x.id === id) }))
+}
+const transactionLocations = (transaction: InventoryTransaction) => {
+  if (transaction.locationAllocations?.length) {
+    return transaction.locationAllocations.map(x => ({ id: x.warehouseLocationId, code: x.warehouseLocationCode }))
+  }
+  return transaction.warehouseLocationCode
+    ? [{ id: transaction.warehouseLocationId, code: transaction.warehouseLocationCode }]
+    : []
+}
 onMounted(load)
 </script>
 
@@ -175,8 +221,8 @@ onMounted(load)
       </header>
       <div class="table-wrap">
         <table v-if="result.items.length" class="data-table">
-          <thead><tr><th>Phụ tùng</th><th>Danh mục / hãng</th><th>Nhà cung cấp đã nhập</th><th class="text-right">Giá nhập gần nhất</th><th class="text-right">Giá bán</th><th class="text-right">Tồn / Min</th><th class="text-right">Thao tác</th></tr></thead>
-          <tbody><tr v-for="part in result.items" :key="part.id" :class="{ 'low-row': part.quantityOnHand < part.minQuantity }"><td><NuxtLink class="part-link" :to="`/inventory/${part.id}`"><span class="cell-main">{{ part.name }}</span><span class="cell-sub mono">{{ part.code }}<span v-if="part.barcode"> · {{ part.barcode }}</span></span><span v-if="part.specifications?.length" class="spec-summary">{{ part.specifications.map(x => `${x.name}: ${x.value}${x.unit ? ` ${x.unit}` : ''}`).join(' · ') }}</span></NuxtLink></td><td><div class="cell-main">{{ categories.find(x => x.id === part.partCategoryId)?.name || '—' }}</div><div class="cell-sub">{{ brands.find(x => x.id === part.partBrandId)?.name || 'Chưa chọn hãng' }}</div></td><td><span v-if="part.supplierIds?.length">{{ part.supplierIds.map(supplierName).join(', ') }}</span><span v-else class="muted">Chưa nhập hàng</span></td><td class="text-right">{{ part.importPrice ? formatCurrency(part.importPrice) : '—' }}</td><td class="text-right cell-main">{{ formatCurrency(part.salePrice) }}</td><td class="text-right"><strong :class="{ danger: part.quantityOnHand < part.minQuantity }">{{ formatNumber(part.quantityOnHand) }}</strong> / {{ formatNumber(part.minQuantity) }} {{ part.unit }}</td><td class="text-right"><div class="inline row-actions"><button class="btn btn-secondary btn-sm" @click="openHistory(part)"><History :size="14" /> Lịch sử nhập</button><template v-if="!isEmployee"><button class="icon-btn small-icon" title="Điều chỉnh tồn" @click="openAdjustment(part)"><SlidersHorizontal :size="14" /></button><button class="icon-btn small-icon" title="Sửa" @click="openPart(part)"><Edit3 :size="14" /></button></template></div></td></tr></tbody>
+          <thead><tr><th>Phụ tùng</th><th>Danh mục / hãng</th><th>Vị trí kho</th><th>Nhà cung cấp đã nhập</th><th class="text-right">Giá nhập gần nhất</th><th class="text-right">Giá bán</th><th class="text-right">Tồn / Min</th><th class="text-right">Thao tác</th></tr></thead>
+          <tbody><tr v-for="part in result.items" :key="part.id" :class="{ 'low-row': part.quantityOnHand < part.minQuantity }"><td><NuxtLink class="part-link" :to="`/inventory/${part.id}`"><span class="cell-main">{{ part.name }}</span><span class="cell-sub mono">{{ part.code }}<span v-if="part.barcode"> · {{ part.barcode }}</span></span><span v-if="part.specifications?.length" class="spec-summary">{{ part.specifications.map(x => `${x.name}: ${x.value}${x.unit ? ` ${x.unit}` : ''}`).join(' · ') }}</span></NuxtLink></td><td><AppEntityLink class="cell-main" :to="entityDetailRoute('PartCategory', part.partCategoryId)">{{ categories.find(x => x.id === part.partCategoryId)?.name || '—' }}</AppEntityLink><div><AppEntityLink class="cell-sub" :to="entityDetailRoute('PartBrand', part.partBrandId)">{{ brands.find(x => x.id === part.partBrandId)?.name || 'Chưa chọn hãng' }}</AppEntityLink></div></td><td><div v-if="partLocations(part).length" class="location-codes"><AppEntityLink v-for="row in partLocations(part)" :key="row.id" class="location-code mono" :to="entityDetailRoute('WarehouseLocation', row.id)">{{ row.location?.code || 'Vị trí cũ' }}</AppEntityLink></div><span v-else class="muted">Chưa xếp vị trí</span></td><td><div v-if="part.supplierIds?.length" class="supplier-links"><AppEntityLink v-for="supplierIdValue in part.supplierIds" :key="supplierIdValue" :to="entityDetailRoute('Supplier', supplierIdValue)">{{ supplierName(supplierIdValue) }}</AppEntityLink></div><span v-else class="muted">Chưa nhập hàng</span></td><td class="text-right">{{ part.importPrice ? formatCurrency(part.importPrice) : '—' }}</td><td class="text-right cell-main">{{ formatCurrency(part.salePrice) }}</td><td class="text-right"><strong :class="{ danger: part.quantityOnHand < part.minQuantity }">{{ formatNumber(part.quantityOnHand) }}</strong> / {{ formatNumber(part.minQuantity) }} {{ part.unit }}</td><td class="text-right"><div class="inline row-actions"><button class="btn btn-secondary btn-sm" @click="openHistory(part)"><History :size="14" /> Lịch sử nhập</button><template v-if="!isEmployee"><button class="icon-btn small-icon" title="Điều chỉnh tồn" @click="openAdjustment(part)"><SlidersHorizontal :size="14" /></button><button class="icon-btn small-icon" title="Sửa" @click="openPart(part)"><Edit3 :size="14" /></button></template></div></td></tr></tbody>
         </table>
         <AppEmpty v-else-if="!loading" :icon="Package" title="Chưa có phụ tùng" message="Thêm phụ tùng vào một danh mục trước khi lập phiếu chi nhập hàng." />
       </div>
@@ -191,6 +237,7 @@ onMounted(load)
           <div class="field span-2"><label>Tên phụ tùng *</label><input v-model.trim="form.name" class="input" required /></div>
           <div class="field"><label>Danh mục *</label><AppSearchSelect :model-value="form.partCategoryId" :options="categoryOptions.slice(1)" required :clearable="false" placeholder="Chọn danh mục" @update:model-value="selectCategory" /></div>
           <div class="field"><label>Hãng phụ tùng</label><AppSearchSelect v-model="form.partBrandId" :options="brandOptions" :clearable="true" placeholder="Chọn hãng" search-placeholder="Tìm hãng..." /></div>
+          <div class="field span-2"><label>Các vị trí trong kho</label><WarehouseLocationPicker v-model="form.warehouseLocationIds" v-model:default-location-id="form.warehouseLocationId" :locations="warehouseLocations" /><small class="muted">Có thể chọn nhiều ngăn. Ngăn mặc định sẽ nhận hàng khi nhập kho.</small></div>
           <div class="field"><label>Đơn vị *</label><AppSearchSelect v-model="form.unit" :options="unitOptions" required :clearable="false" placeholder="Chọn đơn vị" search-placeholder="Tìm đơn vị..." /></div><div class="field"><label>Giá bán</label><AppNumberInput v-model="form.salePrice" class="input" min="0" /></div>
           <div class="field"><label>Số lượng cảnh báo (min)</label><AppNumberInput v-model="form.minQuantity" class="input" min="0" /></div>
           <div class="field"><label>Thay sau số km</label><AppNumberInput v-model="form.replacementIntervalKm" class="input" min="1" placeholder="Ví dụ: 12000" /></div>
@@ -217,12 +264,13 @@ onMounted(load)
     </AppModal>
 
     <AppModal :open="historyModal" :title="`Lịch sử nhập: ${selectedPart?.name || ''}`" width="860px" @close="historyModal = false">
-      <div class="table-wrap"><table v-if="historyItems.length" class="data-table"><thead><tr><th>Ngày nhập</th><th>Phiếu chi</th><th>Nhà cung cấp</th><th class="text-right">Số lượng</th><th class="text-right">Giá nhập</th><th class="text-right">Thành tiền</th></tr></thead><tbody><tr v-for="item in historyItems" :key="item.id"><td>{{ formatDate(item.transactionDate, true) }}</td><td class="mono">{{ voucherCode(item.referenceId) }}</td><td>{{ supplierName(item.supplierId) }}</td><td class="text-right">{{ formatNumber(item.quantity) }}</td><td class="text-right">{{ formatCurrency(item.unitCost) }}</td><td class="text-right cell-main">{{ formatCurrency(item.quantity * item.unitCost) }}</td></tr></tbody></table><AppEmpty v-else title="Chưa có lịch sử nhập" message="Phụ tùng này chưa được nhập bằng phiếu chi." /></div>
+      <div class="table-wrap"><table v-if="historyItems.length" class="data-table"><thead><tr><th>Ngày nhập</th><th>Phiếu chi</th><th>Nhà cung cấp</th><th>Vị trí nhập</th><th class="text-right">Số lượng</th><th class="text-right">Giá nhập</th><th class="text-right">Thành tiền</th></tr></thead><tbody><tr v-for="item in historyItems" :key="item.id"><td>{{ formatDate(item.transactionDate, true) }}</td><td><AppEntityLink class="mono" :to="isEmployee ? undefined : entityDetailRoute('CashTransaction', item.referenceId)">{{ voucherCode(item.referenceId) }}</AppEntityLink></td><td><AppEntityLink :to="entityDetailRoute('Supplier', item.supplierId)">{{ supplierName(item.supplierId) }}</AppEntityLink></td><td><div v-if="transactionLocations(item).length" class="location-codes"><AppEntityLink v-for="location in transactionLocations(item)" :key="location.id || location.code" class="location-code mono" :to="entityDetailRoute('WarehouseLocation', location.id)">{{ location.code }}</AppEntityLink></div><span v-else>—</span></td><td class="text-right">{{ formatNumber(item.quantity) }}</td><td class="text-right">{{ formatCurrency(item.unitCost) }}</td><td class="text-right cell-main">{{ formatCurrency(item.quantity * item.unitCost) }}</td></tr></tbody></table><AppEmpty v-else title="Chưa có lịch sử nhập" message="Phụ tùng này chưa được nhập bằng phiếu chi." /></div>
     </AppModal>
   </div>
 </template>
 
 <style scoped>
+.location-codes,.supplier-links { display: flex; flex-wrap: wrap; gap: 4px 8px; }.location-code { display: inline-flex; padding: 4px 7px; border-radius: 7px; color: #805b09; background: var(--amber-soft); font-size: 11px; }
 .breadcrumb { margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 750; }.breadcrumb span { padding: 0 5px; color: var(--amber); }
 .low-row { background: #fffafa; }.danger { color: var(--red); }.row-actions { justify-content: flex-end; flex-wrap: nowrap; }.small-icon { width: 34px; height: 34px; }
 .filter-head { display: grid; grid-template-columns: minmax(250px, 1fr) 210px 230px auto; align-items: center; gap: 10px; }.filter-head > :last-child { text-align: right; }

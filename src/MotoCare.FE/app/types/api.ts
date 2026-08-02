@@ -136,6 +136,8 @@ export interface PartCategory extends BaseDocument {
   specificationDefinitions: Array<{
     code: string
     name: string
+    dataType: 'Text' | 'Number' | 'Boolean' | 'Selection'
+    options: string[]
     unit?: string
     isRequired: boolean
   }>
@@ -169,9 +171,31 @@ export interface Part extends BaseDocument {
   salePrice: number
   quantityOnHand: number
   minQuantity: number
-  location?: string
+  replacementIntervalKm?: number
+  replacementIntervalMonths?: number
   notes?: string
   isActive: boolean
+}
+
+export interface PartReplacementReminder {
+  customerId: string
+  customerName: string
+  customerPhone?: string
+  vehicleId: string
+  licensePlate: string
+  currentOdometer?: number
+  partId: string
+  partCode: string
+  partName: string
+  installedAt: string
+  installedOdometer?: number
+  dueAt?: string
+  dueOdometer?: number
+  remainingDays?: number
+  remainingKm?: number
+  isOverdue: boolean
+  isDueSoon: boolean
+  lastRepairOrderId: string
 }
 
 export interface InventoryTransaction extends BaseDocument {

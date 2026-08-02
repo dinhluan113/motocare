@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowLeft, Barcode, Boxes, MapPin, Package, Pencil, Tags, Truck } from '@lucide/vue'
+import { AlertTriangle, ArrowLeft, Barcode, Boxes, Package, Pencil, Tags, Truck } from '@lucide/vue'
 import type { InventoryTransaction, PagedResult, Part, PartBrand, PartCategory, Supplier } from '~/types/api'
 import { formatCurrency, formatDate, formatNumber } from '~/utils/format'
 
@@ -18,7 +18,8 @@ interface SpecificationValue { code: string, name: string, unit?: string, value:
 const form = reactive({
   code: '', barcode: '', name: '', partBrandId: '', partCategoryId: '', unit: '',
   specifications: [] as SpecificationValue[], salePrice: 0, minQuantity: 0,
-  location: '', notes: '', isActive: true
+  replacementIntervalKm: null as number | null, replacementIntervalMonths: null as number | null,
+  notes: '', isActive: true
 })
 
 const partId = computed(() => String(route.params.id))
@@ -37,6 +38,11 @@ const unitOptions = [
   'Cái', 'Chiếc', 'Bộ', 'Cặp', 'Hộp', 'Chai', 'Bình', 'Tuýp',
   'Gói', 'Túi', 'Cuộn', 'Mét', 'Lít', 'Thanh', 'Tấm'
 ].map(name => ({ code: name, name }))
+const normalizeSpecificationValue = (dataType: string, value?: string) => {
+  if (dataType !== 'Boolean') return value || ''
+  return ['true', '1', 'yes', 'có'].includes((value || '').toLowerCase()) ? 'true' : 'false'
+}
+const setSpecificationValue = (index: number, value: string) => { specificationValue(index).value = value }
 
 const movementLabel = (type: InventoryTransaction['type']) => ({
   Receipt: 'Nhập kho',
@@ -64,11 +70,12 @@ const openEdit = () => {
       code: definition.code,
       name: definition.name,
       unit: definition.unit,
-      value: part.value?.specifications?.find(x => x.code === definition.code)?.value || ''
+      value: normalizeSpecificationValue(definition.dataType, part.value?.specifications?.find(x => x.code === definition.code)?.value)
     })),
     salePrice: part.value.salePrice,
     minQuantity: part.value.minQuantity,
-    location: part.value.location || '',
+    replacementIntervalKm: part.value.replacementIntervalKm ?? null,
+    replacementIntervalMonths: part.value.replacementIntervalMonths ?? null,
     notes: part.value.notes || '',
     isActive: part.value.isActive
   })
@@ -82,7 +89,7 @@ const selectCategory = (id: string | null) => {
     code: definition.code,
     name: definition.name,
     unit: definition.unit,
-    value: form.specifications.find(x => x.code === definition.code)?.value || ''
+    value: normalizeSpecificationValue(definition.dataType, form.specifications.find(x => x.code === definition.code)?.value)
   }))
 }
 
@@ -179,8 +186,9 @@ onMounted(load)
             <div><span><Boxes :size="14" /> Hãng phụ tùng</span><strong>{{ brandName }}</strong></div>
             <div><span><Barcode :size="14" /> Barcode</span><strong class="mono">{{ part.barcode || '—' }}</strong></div>
             <div><span>Đơn vị tính</span><strong>{{ part.unit }}</strong></div>
-            <div><span><MapPin :size="14" /> Vị trí kho</span><strong>{{ part.location || 'Chưa khai báo' }}</strong></div>
             <div><span><Truck :size="14" /> Nhà cung cấp đã nhập</span><strong>{{ supplierNames }}</strong></div>
+            <div><span>Chu kỳ theo quãng đường</span><strong>{{ part.replacementIntervalKm ? `${formatNumber(part.replacementIntervalKm)} km` : 'Không thiết lập' }}</strong></div>
+            <div><span>Chu kỳ theo thời gian</span><strong>{{ part.replacementIntervalMonths ? `${formatNumber(part.replacementIntervalMonths)} tháng` : 'Không thiết lập' }}</strong></div>
             <div class="span-2"><span>Ghi chú</span><strong>{{ part.notes || '—' }}</strong></div>
           </div>
         </article>
@@ -190,7 +198,7 @@ onMounted(load)
           <div v-if="part.specifications?.length" class="spec-list">
             <div v-for="specification in part.specifications" :key="specification.code">
               <span>{{ specification.name }}</span>
-              <strong>{{ specification.value }}<small v-if="specification.unit"> {{ specification.unit }}</small></strong>
+              <strong>{{ specification.value === 'true' ? 'Có' : specification.value === 'false' ? 'Không' : specification.value }}<small v-if="specification.unit"> {{ specification.unit }}</small></strong>
             </div>
           </div>
           <AppEmpty v-else title="Chưa có thông số kỹ thuật" message="Phụ tùng này chưa được khai báo thông số theo danh mục." />
@@ -231,12 +239,17 @@ onMounted(load)
         <div class="field"><label>Đơn vị *</label><AppSearchSelect v-model="form.unit" :options="unitOptions" required :clearable="false" placeholder="Chọn đơn vị" search-placeholder="Tìm đơn vị..." /></div>
         <div class="field"><label>Giá bán</label><AppNumberInput v-model="form.salePrice" class="input" min="0" /></div>
         <div class="field"><label>Số lượng cảnh báo (min)</label><AppNumberInput v-model="form.minQuantity" class="input" min="0" /></div>
-        <div class="field"><label>Vị trí kho</label><input v-model.trim="form.location" class="input" placeholder="Kệ, ngăn hoặc khu vực lưu trữ" /></div>
+        <div class="field"><label>Thay sau số km</label><AppNumberInput v-model="form.replacementIntervalKm" class="input" min="1" placeholder="Ví dụ: 12000" /></div>
+        <div class="field"><label>Thay sau số tháng</label><AppNumberInput v-model="form.replacementIntervalMonths" class="input" min="1" placeholder="Ví dụ: 24" /></div>
+        <div class="info-note span-2">Có thể khai báo một hoặc cả hai chu kỳ. Hệ thống sẽ nhắc theo điều kiện đến trước kể từ lần lắp gần nhất.</div>
         <template v-if="selectedSpecificationDefinitions.length">
           <div class="form-section span-2">Thông số kỹ thuật</div>
           <div v-for="(definition, index) in selectedSpecificationDefinitions" :key="definition.code" class="field">
             <label>{{ definition.name }}<span v-if="definition.unit"> ({{ definition.unit }})</span>{{ definition.isRequired ? ' *' : '' }}</label>
-            <input v-model.trim="specificationValue(index).value" class="input" :required="definition.isRequired" />
+            <select v-if="definition.dataType === 'Selection'" v-model="specificationValue(index).value" class="select" :required="definition.isRequired"><option value="">Chọn {{ definition.name.toLowerCase() }}</option><option v-for="option in definition.options" :key="option" :value="option">{{ option }}</option></select>
+            <label v-else-if="definition.dataType === 'Boolean'" class="boolean-spec-input"><input type="checkbox" :checked="specificationValue(index).value === 'true'" @change="setSpecificationValue(index, ($event.target as HTMLInputElement).checked ? 'true' : 'false')" /><span>{{ specificationValue(index).value === 'true' ? 'Có' : 'Không' }}</span></label>
+            <input v-else-if="definition.dataType === 'Number'" type="number" step="any" class="input" :required="definition.isRequired" :value="specificationValue(index).value" @input="setSpecificationValue(index, ($event.target as HTMLInputElement).value)" />
+            <input v-else v-model.trim="specificationValue(index).value" class="input" :required="definition.isRequired" />
           </div>
         </template>
         <div class="field span-2"><label>Ghi chú</label><textarea v-model.trim="form.notes" class="textarea" maxlength="2000" /></div>
@@ -256,6 +269,8 @@ onMounted(load)
 .stock-card { padding: 17px 19px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: white; box-shadow: var(--shadow-sm); }
 .stock-card span,.stock-card strong,.stock-card small { display: block; }
 .stock-card span { color: var(--muted); font-size: 11px; }
+.info-note { padding: 12px 14px; border-radius: 10px; color: #805b09; background: var(--amber-soft); font-size: 12px; }
+.boolean-spec-input { display: flex; min-height: 40px; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: white; }
 .stock-card strong { margin-top: 5px; color: var(--navy-950); font-size: 21px; }
 .stock-card small { margin-top: 2px; color: var(--muted); }
 .stock-card strong.danger { color: var(--red); }

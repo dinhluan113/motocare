@@ -107,6 +107,7 @@ builder.Services.AddScoped<LoyaltyService>();
 builder.Services.AddScoped<RepairOrderService>();
 builder.Services.AddScoped<InvoiceService>();
 builder.Services.AddScoped<ReportsService>();
+builder.Services.AddScoped<PartReplacementReminderService>();
 builder.Services.AddScoped<ExcelExportService>();
 builder.Services.AddScoped<DemoDataService>();
 builder.Services.AddScoped<LocationService>();

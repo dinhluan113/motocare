@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import {
   AlertTriangle,
+  BellRing,
   Bike,
   ChevronRight,
   CircleDollarSign,
   Clock3,
-  Droplets,
   PackageX,
   Plus,
   ReceiptText,
   Wrench
 } from '@lucide/vue'
-import type { PagedResult, Part, RepairOrder } from '~/types/api'
+import type { PagedResult, Part, PartReplacementReminder, RepairOrder } from '~/types/api'
 import { formatCurrency, formatDate, formatNumber, statusLabel, statusTone } from '~/utils/format'
 
 interface Dashboard {
@@ -39,23 +39,10 @@ interface Dashboard {
     outstandingToday: number
   }
   maintenance: {
-    oilChange: {
-      intervalKm: number
+    partReplacement: {
       warningBeforeKm: number
-      vehicles: Array<{
-        vehicleId: string
-        licensePlate: string
-        customerId: string
-        customerName: string
-        customerPhone?: string
-        currentOdometer: number
-        lastOdometer: number
-        dueOdometer: number
-        remainingKm: number
-        overdue: boolean
-        lastChangedAt: string
-        lastRepairOrderId: string
-      }>
+      warningBeforeDays: number
+      reminders: PartReplacementReminder[]
     }
   }
 }
@@ -65,6 +52,19 @@ const loading = ref(true)
 const dashboard = ref<Dashboard>()
 const orders = ref<RepairOrder[]>([])
 const lowStock = ref<Part[]>([])
+const replacementDueText = (item: PartReplacementReminder) => {
+  const details: string[] = []
+  if (item.dueOdometer !== undefined) details.push(`${formatNumber(item.dueOdometer)} km`)
+  if (item.dueAt) details.push(formatDate(item.dueAt))
+  return details.join(' · ')
+}
+const replacementStatusText = (item: PartReplacementReminder) => {
+  if (item.isOverdue) return 'Đã đến hạn'
+  const details: string[] = []
+  if (item.remainingKm !== undefined) details.push(`còn ${formatNumber(item.remainingKm)} km`)
+  if (item.remainingDays !== undefined) details.push(`còn ${formatNumber(item.remainingDays)} ngày`)
+  return details.join(' · ')
+}
 
 const load = async () => {
   loading.value = true
@@ -190,16 +190,16 @@ onMounted(load)
       </div>
     </section>
 
-    <section v-if="dashboard?.maintenance.oilChange.vehicles.length" class="card oil-alert-card">
-      <header class="card-header">
-        <div><h2 class="card-title"><Droplets :size="20" /> Xe sắp đến hạn thay nhớt</h2><span class="section-note">Chu kỳ {{ formatNumber(dashboard.maintenance.oilChange.intervalKm) }} km · cảnh báo trước {{ formatNumber(dashboard.maintenance.oilChange.warningBeforeKm) }} km</span></div>
-        <AppBadge tone="warning">{{ dashboard.maintenance.oilChange.vehicles.length }} xe</AppBadge>
+    <section v-if="dashboard?.maintenance.partReplacement.reminders.length" class="card replacement-alert-card">
+      <header class="card-header replacement-alert-header">
+        <div><h2 class="card-title"><BellRing :size="20" /> Lịch thay thế phụ tùng</h2><span class="section-note">Sắp đến hạn trong {{ formatNumber(dashboard.maintenance.partReplacement.warningBeforeKm) }} km hoặc {{ formatNumber(dashboard.maintenance.partReplacement.warningBeforeDays) }} ngày</span></div>
+        <AppBadge tone="warning">{{ dashboard.maintenance.partReplacement.reminders.length }} nhắc nhở</AppBadge>
       </header>
-      <div class="oil-alert-list">
-        <NuxtLink v-for="item in dashboard.maintenance.oilChange.vehicles" :key="item.vehicleId" :to="`/customers/${item.customerId}`" class="oil-alert-row">
-          <div><strong>{{ item.licensePlate }} · {{ item.customerName }}</strong><span>{{ item.customerPhone || 'Chưa có số điện thoại' }} · ODO hiện tại {{ formatNumber(item.currentOdometer) }} km</span></div>
-          <div class="oil-due"><AppBadge :tone="item.overdue ? 'danger' : 'warning'">{{ item.overdue ? `Quá ${formatNumber(Math.abs(item.remainingKm))} km` : `Còn ${formatNumber(item.remainingKm)} km` }}</AppBadge><small>Hạn tại {{ formatNumber(item.dueOdometer) }} km</small></div>
-        </NuxtLink>
+      <div class="table-wrap">
+        <table class="data-table replacement-table">
+          <thead><tr><th>Khách hàng / xe</th><th>Phụ tùng đã lắp</th><th>Lắp gần nhất</th><th>Hạn thay</th><th>Trạng thái</th><th aria-label="Xem khách hàng" /></tr></thead>
+          <tbody><tr v-for="item in dashboard.maintenance.partReplacement.reminders" :key="`${item.vehicleId}-${item.partId}`" class="replacement-row" tabindex="0" @click="navigateTo(`/customers/${item.customerId}`)" @keydown.enter="navigateTo(`/customers/${item.customerId}`)"><td><strong>{{ item.customerName }}</strong><span class="cell-sub mono">{{ item.licensePlate }} · ODO {{ item.currentOdometer !== undefined ? `${formatNumber(item.currentOdometer)} km` : 'chưa có' }}</span></td><td><strong>{{ item.partName }}</strong><span class="cell-sub mono">{{ item.partCode }}</span></td><td>{{ formatDate(item.installedAt) }}<span class="cell-sub">{{ item.installedOdometer !== undefined ? `${formatNumber(item.installedOdometer)} km` : 'Không có ODO' }}</span></td><td>{{ replacementDueText(item) }}</td><td><AppBadge :tone="item.isOverdue ? 'danger' : 'warning'">{{ replacementStatusText(item) }}</AppBadge></td><td class="detail-cell"><ChevronRight :size="17" /></td></tr></tbody>
+        </table>
       </div>
     </section>
 
@@ -262,7 +262,7 @@ onMounted(load)
           >
             <div>
               <strong>{{ part.name }}</strong>
-              <span class="mono">{{ part.code }} · {{ part.location || 'Chưa có vị trí' }}</span>
+              <span class="mono">{{ part.code }}</span>
             </div>
             <div class="stock-count">
               <strong>{{ formatNumber(part.quantityOnHand) }}</strong>
@@ -314,20 +314,11 @@ onMounted(load)
 .overdue-table { min-width: 760px; }
 .overdue-row { cursor: pointer; transition: background 140ms ease; }
 .overdue-row:hover,.overdue-row:focus-visible { background: #fff8f8; outline: none; }
+.replacement-alert-card { overflow: hidden; border-color: #f0d89d; }.replacement-alert-header { background: #fffaf0; }.replacement-table { min-width: 920px; }.replacement-row { cursor: pointer; transition: background 140ms ease; }.replacement-row:hover,.replacement-row:focus-visible { background: #fffbf2; outline: none; }
 .customer-name,.vehicle-plate { display: block; }
 .customer-name { color: var(--navy-950); font-size: 12px; }
 .vehicle-plate { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .detail-cell { width: 42px; color: var(--muted); text-align: right; }
-.oil-alert-card { overflow: hidden; border-color: #e8c66a; }
-.oil-alert-card .card-title { display: flex; align-items: center; gap: 8px; }
-.oil-alert-card .card-title svg { color: var(--amber); }
-.oil-alert-list { padding: 4px 18px 12px; }
-.oil-alert-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 2px; border-bottom: 1px solid var(--line); }
-.oil-alert-row:last-child { border-bottom: 0; }
-.oil-alert-row strong, .oil-alert-row span, .oil-due small { display: block; }
-.oil-alert-row strong { color: var(--navy-950); }
-.oil-alert-row span, .oil-due small { margin-top: 3px; color: var(--muted); font-size: 11px; }
-.oil-due { flex: 0 0 auto; text-align: right; }
 
 .stock-list { padding: 8px 18px; }
 
@@ -354,7 +345,5 @@ onMounted(load)
 
 @media (max-width: 600px) {
   .dashboard-metrics { grid-template-columns: 1fr; }
-  .oil-alert-row { align-items: flex-start; flex-direction: column; gap: 8px; }
-  .oil-due { text-align: left; }
 }
 </style>

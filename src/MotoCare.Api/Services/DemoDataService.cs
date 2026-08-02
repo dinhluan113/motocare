@@ -223,13 +223,13 @@ public sealed class DemoDataService(
             new Supplier { Code = "NCC-000004", Name = "Điện xe & Ắc quy Nam Việt (Mẫu)", Phone = "02873000004", Address = "Quận 10, TP. Hồ Chí Minh", Notes = "Tạm ngừng đặt hàng để minh họa trạng thái.", IsActive = false }
         ]);
         d.PartCategories.AddRange([
-            Category("DMPT-000001", "Dầu nhớt & dung dịch", "Nhớt máy, nhớt hộp số và dung dịch bảo dưỡng", [("VISCOSITY", "Độ nhớt", null, false), ("VOLUME", "Dung tích", "L", true)]),
-            Category("DMPT-000002", "Hệ thống đánh lửa", "Bugi và linh kiện đánh lửa", [("PLUG_CODE", "Mã bugi", null, true)]),
-            Category("DMPT-000003", "Hệ thống phanh", "Má phanh, guốc phanh và dầu phanh", [("POSITION", "Vị trí", null, true)]),
-            Category("DMPT-000004", "Truyền động", "Dây curoa, nhông sên dĩa", [("COMPATIBILITY", "Dòng xe", null, true)]),
-            Category("DMPT-000005", "Lốp xe", "Lốp không săm và có săm", [("SIZE", "Kích thước", null, true), ("TUBELESS", "Không săm", null, false)]),
-            Category("DMPT-000006", "Điện & ắc quy", "Ắc quy, bóng đèn, cầu chì", [("VOLTAGE", "Điện áp", "V", true)]),
-            Category("DMPT-000007", "Lọc gió", "Lọc gió động cơ", [("COMPATIBILITY", "Dòng xe", null, true)])
+            Category("DMPT-000001", "Dầu nhớt & dung dịch", "Nhớt máy, nhớt hộp số và dung dịch bảo dưỡng", [("VISCOSITY", "Độ nhớt", null, false, PartSpecificationDataType.Selection, new[] { "10W-30", "10W-40", "20W-40" }), ("VOLUME", "Dung tích", "L", true, PartSpecificationDataType.Number, Array.Empty<string>())]),
+            Category("DMPT-000002", "Hệ thống đánh lửa", "Bugi và linh kiện đánh lửa", [("PLUG_CODE", "Mã bugi", null, true, PartSpecificationDataType.Text, Array.Empty<string>())]),
+            Category("DMPT-000003", "Hệ thống phanh", "Má phanh, guốc phanh và dầu phanh", [("POSITION", "Vị trí", null, true, PartSpecificationDataType.Selection, new[] { "Trước", "Sau" })]),
+            Category("DMPT-000004", "Truyền động", "Dây curoa, nhông sên dĩa", [("COMPATIBILITY", "Dòng xe", null, true, PartSpecificationDataType.Text, Array.Empty<string>())]),
+            Category("DMPT-000005", "Lốp xe", "Lốp không săm và có săm", [("SIZE", "Kích thước", null, true, PartSpecificationDataType.Text, Array.Empty<string>()), ("TUBELESS", "Không săm", null, false, PartSpecificationDataType.Boolean, Array.Empty<string>())]),
+            Category("DMPT-000006", "Điện & ắc quy", "Ắc quy, bóng đèn, cầu chì", [("VOLTAGE", "Điện áp", "V", true, PartSpecificationDataType.Number, Array.Empty<string>())]),
+            Category("DMPT-000007", "Lọc gió", "Lọc gió động cơ", [("COMPATIBILITY", "Dòng xe", null, true, PartSpecificationDataType.Text, Array.Empty<string>())])
         ]);
         d.ServiceCategories.AddRange([
             Service("DV-000001", "Thay nhớt động cơ", 50_000, "Kiểm tra mức nhớt và thay nhớt; chưa gồm vật tư."),
@@ -244,26 +244,36 @@ public sealed class DemoDataService(
             Service("DV-000010", "Kiểm tra tổng quát", 80_000, "Chẩn đoán ban đầu trước khi báo giá.")
         ]);
 
-        var prices = new (string Code, string Name, int Brand, int Cat, string Unit, decimal Import, decimal Stock, decimal Sale, decimal Qty, decimal Min, int Supplier, string Location, (string, string, string?, string)[] Specs)[]
+        var prices = new (string Code, string Name, int Brand, int Cat, string Unit, decimal Import, decimal Stock, decimal Sale, decimal Qty, decimal Min, int Supplier, (string, string, string?, string)[] Specs)[]
         {
-            ("PT-000001", "Nhớt Motul Scooter MA 4T 10W-40 0,8L", 0, 0, "Chai", 125_000, 135_000, 165_000, 18, 8, 1, "A1-01", [("VISCOSITY", "Độ nhớt", null, "10W-40"), ("VOLUME", "Dung tích", "L", "0.8")]),
-            ("PT-000002", "Nhớt động cơ Honda 4T SL 10W-30 0,8L", 2, 0, "Chai", 88_000, 95_000, 120_000, 24, 10, 0, "A1-02", [("VISCOSITY", "Độ nhớt", null, "10W-30"), ("VOLUME", "Dung tích", "L", "0.8")]),
-            ("PT-000003", "Nhớt hộp số xe ga 120ml", 2, 0, "Tuýp", 32_000, 38_000, 50_000, 7, 8, 0, "A1-03", [("VOLUME", "Dung tích", "L", "0.12")]),
-            ("PT-000004", "Bugi NGK C6HSA cho Wave/Dream", 1, 1, "Cái", 42_000, 50_000, 65_000, 16, 6, 0, "B1-01", [("PLUG_CODE", "Mã bugi", null, "C6HSA")]),
-            ("PT-000005", "Bugi NGK CPR6EA-9 cho xe tay ga Honda", 1, 1, "Cái", 68_000, 78_000, 95_000, 4, 5, 0, "B1-02", [("PLUG_CODE", "Mã bugi", null, "CPR6EA-9")]),
-            ("PT-000006", "Má phanh trước Honda Air Blade/Vision", 2, 2, "Bộ", 105_000, 125_000, 165_000, 6, 4, 0, "B2-01", [("POSITION", "Vị trí", null, "Trước")]),
-            ("PT-000007", "Guốc phanh sau Wave Alpha", 2, 2, "Bộ", 82_000, 95_000, 135_000, 3, 4, 0, "B2-02", [("POSITION", "Vị trí", null, "Sau")]),
-            ("PT-000008", "Dây curoa Honda Air Blade 125", 2, 3, "Sợi", 310_000, 350_000, 430_000, 5, 3, 0, "C1-01", [("COMPATIBILITY", "Dòng xe", null, "Air Blade 125")]),
-            ("PT-000009", "Bộ nhông sên dĩa D.I.D Wave Alpha", 6, 3, "Bộ", 345_000, 390_000, 490_000, 2, 3, 0, "C1-02", [("COMPATIBILITY", "Dòng xe", null, "Wave Alpha 110")]),
-            ("PT-000010", "Lốp IRC 70/90-17 NF63B", 4, 4, "Cái", 285_000, 320_000, 390_000, 6, 4, 2, "D1-01", [("SIZE", "Kích thước", null, "70/90-17"), ("TUBELESS", "Không săm", null, "Không")]),
-            ("PT-000011", "Lốp IRC 90/90-14 NR77U", 4, 4, "Cái", 405_000, 455_000, 540_000, 3, 4, 2, "D1-02", [("SIZE", "Kích thước", null, "90/90-14"), ("TUBELESS", "Không săm", null, "Có")]),
-            ("PT-000012", "Ắc quy GS GTZ6V 12V-5Ah", 5, 5, "Bình", 410_000, 465_000, 560_000, 5, 3, 3, "E1-01", [("VOLTAGE", "Điện áp", "V", "12")]),
-            ("PT-000013", "Bóng đèn pha HS1 12V 35/35W", 3, 5, "Cái", 48_000, 58_000, 75_000, 10, 5, 0, "E1-02", [("VOLTAGE", "Điện áp", "V", "12")]),
-            ("PT-000014", "Lọc gió Honda Vision 110", 2, 6, "Cái", 105_000, 120_000, 155_000, 4, 5, 0, "F1-01", [("COMPATIBILITY", "Dòng xe", null, "Vision 110")]),
-            ("PT-000015", "Dung dịch vệ sinh kim phun 100ml", 0, 0, "Chai", 72_000, 85_000, 120_000, 9, 4, 1, "A1-04", [("VOLUME", "Dung tích", "L", "0.1")])
+            ("PT-000001", "Nhớt Motul Scooter MA 4T 10W-40 0,8L", 0, 0, "Chai", 125_000, 135_000, 165_000, 18, 8, 1, [("VISCOSITY", "Độ nhớt", null, "10W-40"), ("VOLUME", "Dung tích", "L", "0.8")]),
+            ("PT-000002", "Nhớt động cơ Honda 4T SL 10W-30 0,8L", 2, 0, "Chai", 88_000, 95_000, 120_000, 24, 10, 0, [("VISCOSITY", "Độ nhớt", null, "10W-30"), ("VOLUME", "Dung tích", "L", "0.8")]),
+            ("PT-000003", "Nhớt hộp số xe ga 120ml", 2, 0, "Tuýp", 32_000, 38_000, 50_000, 7, 8, 0, [("VOLUME", "Dung tích", "L", "0.12")]),
+            ("PT-000004", "Bugi NGK C6HSA cho Wave/Dream", 1, 1, "Cái", 42_000, 50_000, 65_000, 16, 6, 0, [("PLUG_CODE", "Mã bugi", null, "C6HSA")]),
+            ("PT-000005", "Bugi NGK CPR6EA-9 cho xe tay ga Honda", 1, 1, "Cái", 68_000, 78_000, 95_000, 4, 5, 0, [("PLUG_CODE", "Mã bugi", null, "CPR6EA-9")]),
+            ("PT-000006", "Má phanh trước Honda Air Blade/Vision", 2, 2, "Bộ", 105_000, 125_000, 165_000, 6, 4, 0, [("POSITION", "Vị trí", null, "Trước")]),
+            ("PT-000007", "Guốc phanh sau Wave Alpha", 2, 2, "Bộ", 82_000, 95_000, 135_000, 3, 4, 0, [("POSITION", "Vị trí", null, "Sau")]),
+            ("PT-000008", "Dây curoa Honda Air Blade 125", 2, 3, "Sợi", 310_000, 350_000, 430_000, 5, 3, 0, [("COMPATIBILITY", "Dòng xe", null, "Air Blade 125")]),
+            ("PT-000009", "Bộ nhông sên dĩa D.I.D Wave Alpha", 6, 3, "Bộ", 345_000, 390_000, 490_000, 2, 3, 0, [("COMPATIBILITY", "Dòng xe", null, "Wave Alpha 110")]),
+            ("PT-000010", "Lốp IRC 70/90-17 NF63B", 4, 4, "Cái", 285_000, 320_000, 390_000, 6, 4, 2, [("SIZE", "Kích thước", null, "70/90-17"), ("TUBELESS", "Không săm", null, "false")]),
+            ("PT-000011", "Lốp IRC 90/90-14 NR77U", 4, 4, "Cái", 405_000, 455_000, 540_000, 3, 4, 2, [("SIZE", "Kích thước", null, "90/90-14"), ("TUBELESS", "Không săm", null, "true")]),
+            ("PT-000012", "Ắc quy GS GTZ6V 12V-5Ah", 5, 5, "Bình", 410_000, 465_000, 560_000, 5, 3, 3, [("VOLTAGE", "Điện áp", "V", "12")]),
+            ("PT-000013", "Bóng đèn pha HS1 12V 35/35W", 3, 5, "Cái", 48_000, 58_000, 75_000, 10, 5, 0, [("VOLTAGE", "Điện áp", "V", "12")]),
+            ("PT-000014", "Lọc gió Honda Vision 110", 2, 6, "Cái", 105_000, 120_000, 155_000, 4, 5, 0, [("COMPATIBILITY", "Dòng xe", null, "Vision 110")]),
+            ("PT-000015", "Dung dịch vệ sinh kim phun 100ml", 0, 0, "Chai", 72_000, 85_000, 120_000, 9, 4, 1, [("VOLUME", "Dung tích", "L", "0.1")])
         };
-        foreach (var p in prices)
-            d.Parts.Add(new Part { Code = p.Code, Barcode = $"893000{p.Code[^6..]}", Name = p.Name, PartBrandId = d.PartBrands[p.Brand].Id, PartCategoryId = d.PartCategories[p.Cat].Id, SupplierIds = [d.Suppliers[p.Supplier].Id], Unit = p.Unit, ImportPrice = p.Import, StockPrice = p.Stock, SalePrice = p.Sale, QuantityOnHand = p.Qty, MinQuantity = p.Min, Location = p.Location, Notes = "Giá tham khảo cho dữ liệu mẫu; cần cập nhật theo báo giá thực tế.", Specifications = p.Specs.Select(x => new PartSpecificationValue { Code = x.Item1, Name = x.Item2, Unit = x.Item3, Value = x.Item4 }).ToList() });
+        var replacementCycles = new (int? Km, int? Months)[]
+        {
+            (2_000, 6), (2_000, 6), (6_000, 12), (8_000, 18), (8_000, 18),
+            (12_000, 24), (12_000, 24), (24_000, 36), (15_000, 24), (20_000, 36),
+            (20_000, 36), (null, 24), (null, null), (12_000, 18), (null, null)
+        };
+        for (var index = 0; index < prices.Length; index++)
+        {
+            var p = prices[index];
+            var cycle = replacementCycles[index];
+            d.Parts.Add(new Part { Code = p.Code, Barcode = $"893000{p.Code[^6..]}", Name = p.Name, PartBrandId = d.PartBrands[p.Brand].Id, PartCategoryId = d.PartCategories[p.Cat].Id, SupplierIds = [d.Suppliers[p.Supplier].Id], Unit = p.Unit, ImportPrice = p.Import, StockPrice = p.Stock, SalePrice = p.Sale, QuantityOnHand = p.Qty, MinQuantity = p.Min, ReplacementIntervalKm = cycle.Km, ReplacementIntervalMonths = cycle.Months, Notes = "Chu kỳ thay là dữ liệu tham khảo; cần điều chỉnh theo khuyến cáo của nhà sản xuất và điều kiện sử dụng.", Specifications = p.Specs.Select(x => new PartSpecificationValue { Code = x.Item1, Name = x.Item2, Unit = x.Item3, Value = x.Item4 }).ToList() });
+        }
 
         BuildOperations(d, currentAdmin, managerUser, staffUser, now, today);
         return d;
@@ -531,6 +541,11 @@ public sealed class DemoDataService(
         List<RepairStatusHistory> history)
     {
         var billable = items.Where(x => x.WorkStatus != WorkStatus.Cancelled).ToList();
+        foreach (var item in items.Where(x => x.WorkStatus == WorkStatus.Completed))
+        {
+            item.StartedAt = receivedAt.AddHours(1);
+            item.CompletedAt = receivedAt.AddHours(2);
+        }
         var estimated = billable.Sum(x => x.Quantity * x.UnitPrice);
         var final = billable.Sum(x => x.LineTotal);
         return Stamp(new RepairOrder
@@ -657,10 +672,10 @@ public sealed class DemoDataService(
 
     private static PartCategory Category(
         string code, string name, string description,
-        (string Code, string Name, string? Unit, bool Required)[] definitions) => new()
+        (string Code, string Name, string? Unit, bool Required, PartSpecificationDataType DataType, string[] Options)[] definitions) => new()
         {
             Code = code, Name = name, Description = description,
-            SpecificationDefinitions = definitions.Select(x => new PartSpecificationDefinition { Code = x.Code, Name = x.Name, Unit = x.Unit, IsRequired = x.Required }).ToList()
+            SpecificationDefinitions = definitions.Select(x => new PartSpecificationDefinition { Code = x.Code, Name = x.Name, Unit = x.Unit, IsRequired = x.Required, DataType = x.DataType, Options = x.Options.ToList() }).ToList()
         };
 
     private static ServiceCategory Service(string code, string name, decimal price, string description) =>

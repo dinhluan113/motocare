@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using System.Globalization;
 using System.Security.Claims;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -200,6 +201,12 @@ public sealed class PartsController(
         entity.Code = entity.Code.Trim().ToUpperInvariant();
         entity.Name = entity.Name.Trim();
         entity.Unit = entity.Unit.Trim();
+        entity.ReplacementIntervalKm = entity.ReplacementIntervalKm is > 0
+            ? entity.ReplacementIntervalKm
+            : null;
+        entity.ReplacementIntervalMonths = entity.ReplacementIntervalMonths is > 0
+            ? entity.ReplacementIntervalMonths
+            : null;
         foreach (var specification in entity.Specifications)
         {
             specification.Code = specification.Code.Trim().ToUpperInvariant();
@@ -212,7 +219,8 @@ public sealed class PartsController(
     protected override void ValidateBusinessRules(Part entity)
     {
         if (entity.ImportPrice < 0 || entity.StockPrice < 0 || entity.SalePrice < 0
-            || entity.QuantityOnHand < 0 || entity.MinQuantity < 0)
+            || entity.QuantityOnHand < 0 || entity.MinQuantity < 0
+            || entity.ReplacementIntervalKm < 0 || entity.ReplacementIntervalMonths < 0)
         {
             throw new InvalidOperationException("Giá và số lượng phụ tùng không được âm.");
         }
@@ -251,6 +259,7 @@ public sealed class PartsController(
             }
             if (!string.IsNullOrWhiteSpace(value))
             {
+                value = NormalizeSpecificationValue(definition, value);
                 normalized.Add(new PartSpecificationValue
                 {
                     Code = definition.Code,
@@ -261,6 +270,41 @@ public sealed class PartsController(
             }
         }
         entity.Specifications = normalized;
+    }
+
+    private static string NormalizeSpecificationValue(
+        PartSpecificationDefinition definition,
+        string value)
+    {
+        if (definition.DataType == PartSpecificationDataType.Number)
+        {
+            if (!decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+                && !decimal.TryParse(value, NumberStyles.Number, CultureInfo.GetCultureInfo("vi-VN"), out number))
+            {
+                throw new InvalidOperationException($"Thông số '{definition.Name}' phải là số.");
+            }
+            return number.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (definition.DataType == PartSpecificationDataType.Boolean)
+        {
+            return value.Trim().ToLowerInvariant() switch
+            {
+                "true" or "1" or "yes" or "có" => "true",
+                "false" or "0" or "no" or "không" => "false",
+                _ => throw new InvalidOperationException($"Thông số '{definition.Name}' phải là Có hoặc Không.")
+            };
+        }
+
+        if (definition.DataType == PartSpecificationDataType.Selection)
+        {
+            var option = definition.Options.FirstOrDefault(x =>
+                string.Equals(x, value, StringComparison.OrdinalIgnoreCase));
+            return option ?? throw new InvalidOperationException(
+                $"Giá trị của thông số '{definition.Name}' không nằm trong danh sách lựa chọn.");
+        }
+
+        return value.Trim();
     }
 }
 
@@ -302,6 +346,17 @@ public sealed class PartCategoriesController(IMongoRepository<PartCategory> repo
             definition.Code = definition.Code.Trim().ToUpperInvariant();
             definition.Name = definition.Name.Trim();
             definition.Unit = definition.Unit?.Trim();
+            definition.Options = definition.DataType == PartSpecificationDataType.Selection
+                ? (definition.Options ?? [])
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+                : [];
+            if (definition.DataType == PartSpecificationDataType.Boolean)
+            {
+                definition.Unit = null;
+            }
         }
     }
 
@@ -314,6 +369,14 @@ public sealed class PartCategoriesController(IMongoRepository<PartCategory> repo
         if (entity.SpecificationDefinitions.GroupBy(x => x.Code).Any(x => x.Count() > 1))
         {
             throw new InvalidOperationException("Mã thông số kỹ thuật không được trùng trong cùng danh mục.");
+        }
+        if (entity.SpecificationDefinitions.Any(x => !Enum.IsDefined(x.DataType)))
+        {
+            throw new InvalidOperationException("Loại thông số kỹ thuật không hợp lệ.");
+        }
+        if (entity.SpecificationDefinitions.Any(x => x.DataType == PartSpecificationDataType.Selection && (x.Options?.Count ?? 0) < 2))
+        {
+            throw new InvalidOperationException("Thông số dạng danh sách lựa chọn phải có ít nhất hai phương án.");
         }
     }
 }

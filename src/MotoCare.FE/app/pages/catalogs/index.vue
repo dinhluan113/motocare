@@ -4,7 +4,8 @@ import type { PagedResult, PartBrand, PartCategory, ServiceCategory, VehicleBran
 import { formatCurrency } from '~/utils/format'
 
 type Tab = 'vehicleBrands' | 'vehicleModels' | 'partBrands' | 'partCategories' | 'serviceCategories'
-interface SpecificationDefinition { code: string, name: string, unit: string, isRequired: boolean }
+type SpecificationDataType = 'Text' | 'Number' | 'Boolean' | 'Selection'
+interface SpecificationDefinition { code: string, name: string, dataType: SpecificationDataType, options: string[], unit: string, isRequired: boolean }
 const api = useApi()
 const auth = useAuth()
 const toast = useToast()
@@ -19,6 +20,14 @@ const modalOpen = ref(false)
 const saving = ref(false)
 const editing = ref<any>()
 const form = reactive({ code: '', name: '', country: '', brandId: '', vehicleType: '', engineCapacityCc: 0, contactInfo: '', description: '', defaultPrice: 0, specificationDefinitions: [] as SpecificationDefinition[], isActive: true })
+const specificationTypeOptions = [
+  { value: 'Text', label: 'Ký tự' },
+  { value: 'Number', label: 'Số' },
+  { value: 'Boolean', label: 'Có/Không' },
+  { value: 'Selection', label: 'Danh sách lựa chọn' }
+] as const
+const specificationTypeLabel = (type: SpecificationDataType) =>
+  specificationTypeOptions.find(x => x.value === type)?.label || 'Ký tự'
 
 const load = async () => {
   const [vb, vm, pb, pc, sc] = await Promise.all([
@@ -38,7 +47,10 @@ const openForm = (item?: any) => {
     brandId: item?.brandId || vehicleBrands.value[0]?.id || '',
     vehicleType: item?.vehicleType || '', engineCapacityCc: item?.engineCapacityCc || 0,
     contactInfo: item?.contactInfo || '', description: item?.description || '', defaultPrice: item?.defaultPrice || 0,
-    specificationDefinitions: (item?.specificationDefinitions || []).map((x: any) => ({ code: x.code, name: x.name, unit: x.unit || '', isRequired: x.isRequired })),
+    specificationDefinitions: (item?.specificationDefinitions || []).map((x: any) => ({
+      code: x.code, name: x.name, dataType: x.dataType || 'Text', options: x.options || [],
+      unit: x.unit || '', isRequired: x.isRequired
+    })),
     isActive: item?.isActive ?? true
   })
   modalOpen.value = true
@@ -81,9 +93,12 @@ const addSpecification = () => {
   let number = 1
   let code = ''
   do { code = `TSKT-${String(number++).padStart(3, '0')}` } while (used.has(code))
-  form.specificationDefinitions.push({ code, name: '', unit: '', isRequired: false })
+  form.specificationDefinitions.push({ code, name: '', dataType: 'Text', options: [], unit: '', isRequired: false })
 }
 const removeSpecification = (index: number) => form.specificationDefinitions.splice(index, 1)
+const setSpecificationOptions = (index: number, value: string) => {
+  form.specificationDefinitions[index]!.options = value.split(',').map(x => x.trim()).filter(Boolean)
+}
 onMounted(load)
 </script>
 
@@ -102,7 +117,7 @@ onMounted(load)
         <table v-if="activeTab === 'vehicleBrands'" class="data-table"><thead><tr><th>Mã</th><th>Tên hãng</th><th>Quốc gia</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in vehicleBrands" :key="item.id"><td class="mono">{{ item.code }}</td><td class="cell-main">{{ item.name }}</td><td>{{ item.country || '—' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge></td><td class="text-right"><button class="btn btn-secondary btn-sm" @click="openForm(item)">Chỉnh sửa</button></td></tr></tbody></table>
         <table v-else-if="activeTab === 'vehicleModels'" class="data-table"><thead><tr><th>Mã</th><th>Dòng xe</th><th>Hãng</th><th>Loại / phân khối</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in vehicleModels" :key="item.id"><td class="mono">{{ item.code }}</td><td class="cell-main">{{ item.name }}</td><td>{{ vehicleBrands.find(x => x.id === item.brandId)?.name || '—' }}</td><td>{{ item.vehicleType || '—' }} · {{ item.engineCapacityCc ? `${item.engineCapacityCc}cc` : '—' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge></td><td class="text-right"><button class="btn btn-secondary btn-sm" @click="openForm(item)">Chỉnh sửa</button></td></tr></tbody></table>
         <table v-else-if="activeTab === 'partBrands'" class="data-table"><thead><tr><th>Mã</th><th>Hãng phụ tùng</th><th>Quốc gia</th><th>Liên hệ</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in partBrands" :key="item.id"><td class="mono">{{ item.code }}</td><td class="cell-main">{{ item.name }}</td><td>{{ item.country || '—' }}</td><td>{{ (item as any).contactInfo || '—' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge></td><td class="text-right"><button class="btn btn-secondary btn-sm" @click="openForm(item)">Chỉnh sửa</button></td></tr></tbody></table>
-        <table v-else-if="activeTab === 'partCategories'" class="data-table"><thead><tr><th>Mã</th><th>Danh mục phụ tùng</th><th>Thông số kỹ thuật</th><th>Mô tả</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in partCategories" :key="item.id"><td class="mono">{{ item.code }}</td><td class="cell-main">{{ item.name }}</td><td><span v-if="item.specificationDefinitions?.length">{{ item.specificationDefinitions.map(x => `${x.name}${x.unit ? ` (${x.unit})` : ''}`).join(', ') }}</span><span v-else>—</span></td><td>{{ item.description || '—' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge></td><td class="text-right"><button class="btn btn-secondary btn-sm" @click="openForm(item)">Chỉnh sửa</button></td></tr></tbody></table>
+        <table v-else-if="activeTab === 'partCategories'" class="data-table"><thead><tr><th>Mã</th><th>Danh mục phụ tùng</th><th>Thông số kỹ thuật</th><th>Mô tả</th><th>Trạng thái</th><th class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in partCategories" :key="item.id"><td class="mono">{{ item.code }}</td><td class="cell-main">{{ item.name }}</td><td><span v-if="item.specificationDefinitions?.length">{{ item.specificationDefinitions.map(x => `${x.name} · ${specificationTypeLabel(x.dataType || 'Text')}${x.unit ? ` (${x.unit})` : ''}`).join(', ') }}</span><span v-else>—</span></td><td>{{ item.description || '—' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge></td><td class="text-right"><button class="btn btn-secondary btn-sm" @click="openForm(item)">Chỉnh sửa</button></td></tr></tbody></table>
         <table v-else class="data-table"><thead><tr><th>Mã</th><th>Dịch vụ</th><th class="text-right">Giá mặc định</th><th>Mô tả</th><th>Trạng thái</th><th v-if="isAdmin" class="text-right">Thao tác</th></tr></thead><tbody><tr v-for="item in serviceCategories" :key="item.id"><td class="mono">{{ item.code }}</td><td class="cell-main">{{ item.name }}</td><td class="text-right">{{ formatCurrency(item.defaultPrice) }}</td><td>{{ item.description || '—' }}</td><td><AppBadge :tone="item.isActive ? 'success' : 'neutral'">{{ item.isActive ? 'Hoạt động' : 'Tạm khóa' }}</AppBadge></td><td v-if="isAdmin" class="text-right"><button class="btn btn-secondary btn-sm" @click="openForm(item)">Chỉnh sửa</button></td></tr></tbody></table>
       </div>
     </section>
@@ -116,12 +131,16 @@ onMounted(load)
           <div class="field span-2"><label>Mô tả</label><textarea v-model.trim="form.description" class="textarea" placeholder="Ví dụ: lọc gió, lốp xe, đèn xe..." /></div>
           <div class="field span-2 spec-editor">
             <div class="spec-head"><div><label>Thông số kỹ thuật</label><small>Mỗi danh mục có một bộ thông số riêng.</small></div><button type="button" class="btn btn-secondary btn-sm" @click="addSpecification"><Plus :size="14" /> Thêm thông số</button></div>
-            <div v-for="(spec, index) in form.specificationDefinitions" :key="index" class="spec-row">
-              <input v-model.trim="spec.code" class="input" required placeholder="Mã (VD: SIZE)" />
-              <input v-model.trim="spec.name" class="input" required placeholder="Tên (VD: Kích thước)" />
-              <input v-model.trim="spec.unit" class="input" placeholder="Đơn vị" />
-              <label class="required-check"><input v-model="spec.isRequired" type="checkbox" /> Bắt buộc</label>
-              <button type="button" class="icon-btn" title="Xóa" @click="removeSpecification(index)"><Trash2 :size="15" /></button>
+            <div v-for="(spec, index) in form.specificationDefinitions" :key="index" class="spec-item">
+              <div class="spec-row">
+                <input v-model.trim="spec.code" class="input" required placeholder="Mã (VD: SIZE)" />
+                <input v-model.trim="spec.name" class="input" required placeholder="Tên (VD: Kích thước)" />
+                <select v-model="spec.dataType" class="select" required><option v-for="type in specificationTypeOptions" :key="type.value" :value="type.value">{{ type.label }}</option></select>
+                <input v-if="spec.dataType !== 'Boolean'" v-model.trim="spec.unit" class="input" placeholder="Đơn vị" /><span v-else class="muted">Không có đơn vị</span>
+                <label class="required-check"><input v-model="spec.isRequired" type="checkbox" /> Bắt buộc</label>
+                <button type="button" class="icon-btn" title="Xóa" @click="removeSpecification(index)"><Trash2 :size="15" /></button>
+              </div>
+              <div v-if="spec.dataType === 'Selection'" class="selection-options"><label>Các lựa chọn *</label><input class="input" required :value="spec.options.join(', ')" placeholder="Ví dụ: Trước, Sau" @input="setSpecificationOptions(index, ($event.target as HTMLInputElement).value)" /><small>Nhập ít nhất 2 lựa chọn, phân cách bằng dấu phẩy.</small></div>
             </div>
             <div v-if="!form.specificationDefinitions.length" class="muted">Chưa có thông số. Ví dụ danh mục Lốp xe có thể thêm “Kích thước”, “Loại lốp”, “Tải trọng”.</div>
           </div>
@@ -137,6 +156,6 @@ onMounted(load)
 .catalog-tabs button { display: inline-flex; min-width: max-content; align-items: center; gap: 8px; padding: 11px 15px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: white; font-weight: 800; }
 .catalog-tabs button.active { border-color: var(--navy-900); color: white; background: var(--navy-900); }
 .catalog-tabs span { display: grid; min-width: 22px; height: 22px; place-items: center; border-radius: 99px; color: var(--navy-900); background: var(--amber-soft); font-size: 10px; }
-.spec-editor { display: grid; gap: 9px; }.spec-head { display: flex; align-items: center; justify-content: space-between; }.spec-head label,.spec-head small { display: block; }.spec-head small { margin-top: 3px; color: var(--muted); }.spec-row { display: grid; grid-template-columns: 130px minmax(180px, 1fr) 100px 100px 38px; align-items: center; gap: 8px; }.required-check { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.spec-editor { display: grid; gap: 9px; }.spec-head { display: flex; align-items: center; justify-content: space-between; }.spec-head label,.spec-head small { display: block; }.spec-head small { margin-top: 3px; color: var(--muted); }.spec-item { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #f9fbfc; }.spec-row { display: grid; grid-template-columns: 120px minmax(160px, 1fr) 150px 100px 90px 38px; align-items: center; gap: 8px; }.required-check { display: flex; align-items: center; gap: 6px; font-size: 11px; }.selection-options { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 8px; }.selection-options small { grid-column: 2; color: var(--muted); }
 @media (max-width: 720px) { .spec-row { grid-template-columns: 1fr; } }
 </style>

@@ -73,7 +73,21 @@ const printInvoice = () => window.print()
         <div class="invoice-number"><small>HÓA ĐƠN BÁN HÀNG</small><strong>{{ invoice.code }}</strong><span>{{ formatDate(invoice.issueDate, true) }}</span></div>
       </header>
       <section class="customer-block"><div><span>Khách hàng</span><strong>{{ invoice.customerName }}</strong></div><div><span>Điện thoại</span><strong>{{ invoice.customerPhone }}</strong></div><div><span>Địa chỉ</span><strong>{{ invoice.customerAddress || '—' }}</strong></div></section>
-      <div class="invoice-table-wrap"><table class="invoice-table"><thead><tr><th>#</th><th>Nội dung</th><th class="text-right">SL</th><th class="text-right">Đơn giá</th><th class="text-right">Giảm</th><th class="text-right">Thành tiền</th></tr></thead><tbody><tr v-for="(item, index) in invoice.items" :key="item.id"><td>{{ index + 1 }}</td><td><strong>{{ item.description }}</strong><span>{{ item.itemType === 'Part' ? 'Phụ tùng' : 'Dịch vụ' }}</span></td><td class="text-right">{{ item.itemType === 'Service' ? '—' : formatNumber(item.quantity) }}</td><td class="text-right">{{ formatCurrency(item.unitPrice) }}</td><td class="text-right">{{ item.discountType === 'Percentage' ? `${item.discountValue}%` : formatCurrency(item.discountAmount) }}</td><td class="text-right"><strong>{{ formatCurrency(item.lineTotal) }}</strong></td></tr></tbody></table></div>
+      <div class="invoice-table-wrap">
+        <table class="invoice-table">
+          <thead><tr><th>#</th><th>Nội dung</th><th class="text-right">SL</th><th class="text-right">Đơn giá</th><th class="text-right">Giảm</th><th class="text-right">Thành tiền</th></tr></thead>
+          <tbody>
+            <tr v-for="(item, index) in invoice.items" :key="item.id">
+              <td class="line-index" data-label="#">{{ index + 1 }}</td>
+              <td class="line-description" data-label="Nội dung"><strong>{{ item.description }}</strong><span>{{ item.itemType === 'Part' ? 'Phụ tùng' : 'Dịch vụ' }}</span></td>
+              <td class="line-quantity text-right" data-label="Số lượng">{{ item.itemType === 'Service' ? '—' : formatNumber(item.quantity) }}</td>
+              <td class="line-price text-right" data-label="Đơn giá">{{ formatCurrency(item.unitPrice) }}</td>
+              <td class="line-discount text-right" data-label="Giảm">{{ item.discountType === 'Percentage' ? `${item.discountValue}%` : formatCurrency(item.discountAmount) }}</td>
+              <td class="line-total text-right" data-label="Thành tiền"><strong>{{ formatCurrency(item.lineTotal) }}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <section class="invoice-footer">
         <div class="payment-history"><h3>Lịch sử thanh toán</h3><div v-if="invoice.payments.length"><div v-for="item in invoice.payments" :key="item.id" class="payment-row"><span>{{ formatDate(item.paidAt, true) }} · {{ item.method }}</span><strong>{{ formatCurrency(item.amount) }}</strong></div></div><p v-else>Chưa có giao dịch thanh toán.</p></div>
         <div class="totals"><div><span>Tạm tính</span><strong>{{ formatCurrency(invoice.subtotal) }}</strong></div><div><span>Tổng giảm giá</span><strong>-{{ formatCurrency(invoice.discountAmount + invoice.loyaltyDiscountAmount) }}</strong></div><div v-if="invoice.couponCode"><span>Trong đó coupon {{ invoice.couponCode }}</span><strong>{{ formatCurrency(invoice.couponDiscountAmount) }}</strong></div><div><span>Thuế</span><strong>{{ formatCurrency(invoice.taxAmount) }}</strong></div><div class="grand-total"><span>Tổng cộng</span><strong>{{ formatCurrency(invoice.totalAmount) }}</strong></div><div><span>Đã thanh toán</span><strong>{{ formatCurrency(invoice.paidAmount) }}</strong></div><div class="remaining"><span>Còn phải thu</span><strong>{{ formatCurrency(invoice.remainingAmount) }}</strong></div></div>
@@ -104,9 +118,10 @@ const printInvoice = () => window.print()
 </template>
 
 <style scoped>
-.invoice-page { max-width: 1050px; margin: 0 auto; }
+.invoice-page { width: 100%; max-width: 1050px; margin: 0 auto; }
+.invoice-page > * { min-width: 0; }
 .back-link { display: inline-flex; width: max-content; align-items: center; gap: 7px; color: var(--muted); font-weight: 700; }
-.invoice-paper { padding: 42px; border: 1px solid var(--line); border-radius: 18px; background: white; box-shadow: var(--shadow); }
+.invoice-paper { min-width: 0; padding: 42px; border: 1px solid var(--line); border-radius: 18px; background: white; box-shadow: var(--shadow); }
 .invoice-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 28px; border-bottom: 2px solid var(--navy-900); }
 .invoice-brand { display: flex; align-items: center; gap: 12px; }
 .invoice-brand > span { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 12px; color: var(--navy-950); background: var(--amber); font-weight: 900; }
@@ -122,7 +137,7 @@ const printInvoice = () => window.print()
 .customer-block span, .customer-block strong { display: block; }
 .customer-block span { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .customer-block strong { margin-top: 4px; color: var(--navy-950); }
-.invoice-table-wrap { overflow-x: auto; overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
+.invoice-table-wrap { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
 .invoice-table { width: 100%; border-collapse: collapse; }
 .invoice-table th { padding: 11px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; text-align: left; text-transform: uppercase; }
 .invoice-table td { padding: 14px 12px; border-bottom: 1px solid var(--line); }
@@ -137,8 +152,20 @@ const printInvoice = () => window.print()
 .remaining { color: var(--red) !important; font-weight: 800; }
 .remaining strong { color: var(--red); }
 .invoice-note { margin-top: 30px; padding-top: 18px; border-top: 1px dashed var(--line); color: var(--muted); font-size: 11px; text-align: center; }
-@media (max-width: 720px) { .invoice-paper { padding: 22px; } .invoice-head { align-items: flex-start; flex-direction: column; }.invoice-number { text-align: left; }.customer-block, .invoice-footer { grid-template-columns: 1fr; }.invoice-table { min-width: 620px; } }
-@media (max-width: 480px) { .invoice-paper { padding: 16px 14px; border-radius: 14px; }.invoice-brand strong,.invoice-number strong { font-size: 17px; }.customer-block { gap: 14px; margin: 18px 0; padding: 14px; }.invoice-footer { gap: 24px; } }
+@media (max-width: 720px) { .invoice-paper { padding: 22px; } .invoice-head { align-items: flex-start; flex-direction: column; }.invoice-number { text-align: left; }.customer-block, .invoice-footer { grid-template-columns: minmax(0, 1fr); }.invoice-footer { gap: 28px; }.payment-row, .totals > div { min-width: 0; }.payment-row span, .totals span { overflow-wrap: anywhere; } }
+@media (max-width: 560px) {
+  .invoice-table-wrap { overflow: visible; }
+  .invoice-table { min-width: 0; }
+  .invoice-table thead { display: none; }
+  .invoice-table tbody, .invoice-table tr, .invoice-table td { display: block; width: 100%; }
+  .invoice-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; padding: 15px 0; border-bottom: 1px solid var(--line); }
+  .invoice-table td { min-width: 0; padding: 0; border: 0; text-align: left; overflow-wrap: anywhere; }
+  .invoice-table td::before { display: block; margin-bottom: 3px; color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; content: attr(data-label); }
+  .invoice-table .line-index { display: none; }
+  .invoice-table .line-description { grid-column: 1 / -1; padding-bottom: 7px; border-bottom: 1px dashed var(--line); }
+  .invoice-table .line-total { color: var(--navy-950); }
+}
+@media (max-width: 480px) { .invoice-paper { padding: 16px 14px; border-radius: 14px; }.invoice-brand strong,.invoice-number strong { font-size: 17px; }.customer-block { gap: 14px; margin: 18px 0; padding: 14px; }.invoice-footer { gap: 24px; }.payment-row { align-items: flex-start; flex-direction: column; gap: 2px; }.totals > div { align-items: flex-start; }.totals > div > :last-child { flex: 0 0 auto; text-align: right; } }
 @media print {
   .no-print, :global(.sidebar), :global(.topbar), :global(.toast-stack) { display: none !important; }
   :global(.main-column) { margin: 0 !important; }

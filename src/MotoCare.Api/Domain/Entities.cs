@@ -166,8 +166,19 @@ public sealed class PartSpecificationDefinition
 {
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    [BsonRepresentation(BsonType.String)]
+    public PartSpecificationDataType DataType { get; set; } = PartSpecificationDataType.Text;
+    public List<string> Options { get; set; } = [];
     public string? Unit { get; set; }
     public bool IsRequired { get; set; }
+}
+
+public enum PartSpecificationDataType
+{
+    Text,
+    Number,
+    Boolean,
+    Selection
 }
 
 public sealed class PartSpecificationValue
@@ -192,6 +203,7 @@ public sealed class SupplierPartStock : BaseDocument
     public DateTime? LastReceiptAt { get; set; }
 }
 
+[BsonIgnoreExtraElements]
 public sealed class Part : BaseDocument
 {
     public string Code { get; set; } = string.Empty;
@@ -218,7 +230,8 @@ public sealed class Part : BaseDocument
     [BsonRepresentation(BsonType.Decimal128)]
     public decimal MinQuantity { get; set; }
 
-    public string? Location { get; set; }
+    public int? ReplacementIntervalKm { get; set; }
+    public int? ReplacementIntervalMonths { get; set; }
     public string? Notes { get; set; }
     public bool IsActive { get; set; } = true;
 }

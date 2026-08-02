@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ArrowLeft, Bike, ClipboardList, Pencil, Plus, Star, Trash2 } from '@lucide/vue'
+import { ArrowLeft, BellRing, Bike, ClipboardList, Pencil, Plus, Star, Trash2 } from '@lucide/vue'
 import type {
   Customer,
   LoyaltyAccount,
   PagedResult,
+  PartReplacementReminder,
   RepairOrder,
   Vehicle,
   VehicleBrand,
@@ -22,6 +23,7 @@ const history = ref<RepairOrder[]>([])
 const loyalty = ref<{ account: LoyaltyAccount | null, transactions: any[] }>()
 const models = ref<VehicleModel[]>([])
 const brands = ref<VehicleBrand[]>([])
+const replacementReminders = ref<PartReplacementReminder[]>([])
 const loading = ref(true)
 const customerModalOpen = ref(false)
 const modalOpen = ref(false)
@@ -55,6 +57,19 @@ const modelOptions = computed(() => models.value.map(model => ({
   code: model.id,
   name: modelName(model.id)
 })))
+const replacementDueText = (item: PartReplacementReminder) => {
+  const details: string[] = []
+  if (item.dueOdometer !== undefined) details.push(`${formatNumber(item.dueOdometer)} km`)
+  if (item.dueAt) details.push(formatDate(item.dueAt))
+  return details.join(' · ')
+}
+const replacementStatusText = (item: PartReplacementReminder) => {
+  if (item.isOverdue) return 'Đã đến hạn thay'
+  const details: string[] = []
+  if (item.remainingKm !== undefined) details.push(`còn ${formatNumber(item.remainingKm)} km`)
+  if (item.remainingDays !== undefined) details.push(`còn ${formatNumber(item.remainingDays)} ngày`)
+  return details.join(' · ') || 'Đang theo dõi'
+}
 
 const openCustomerForm = () => {
   if (!customer.value) return
@@ -115,13 +130,14 @@ const openVehicleForm = (vehicle?: Vehicle) => {
 const load = async () => {
   loading.value = true
   try {
-    const [c, v, h, l, m, b] = await Promise.all([
+    const [c, v, h, l, m, b, reminders] = await Promise.all([
       api.request<Customer>(`/customers/${customerId.value}`),
       api.request<PagedResult<Vehicle>>('/vehicles', { query: { customerId: customerId.value, pageSize: 100 } }),
       api.request<PagedResult<RepairOrder>>(`/customers/${customerId.value}/repair-history`, { query: { pageSize: 100 } }),
       api.request<{ account: LoyaltyAccount | null, transactions: any[] }>(`/customers/${customerId.value}/loyalty`),
       api.request<PagedResult<VehicleModel>>('/vehicle-models?pageSize=200'),
-      api.request<PagedResult<VehicleBrand>>('/vehicle-brands?pageSize=200')
+      api.request<PagedResult<VehicleBrand>>('/vehicle-brands?pageSize=200'),
+      api.request<PartReplacementReminder[]>(`/customers/${customerId.value}/part-replacement-reminders`)
     ])
     customer.value = c
     vehicles.value = v.items
@@ -129,6 +145,7 @@ const load = async () => {
     loyalty.value = l
     models.value = m.items
     brands.value = b.items
+    replacementReminders.value = reminders
   } finally { loading.value = false }
 }
 
@@ -203,6 +220,17 @@ onMounted(load)
         </div>
         <small>Chi tiêu tích lũy {{ formatCurrency(loyalty?.account?.eligibleSpend || 0) }}</small>
       </article>
+    </section>
+
+    <section class="card replacement-card">
+      <header class="card-header"><div><h2 class="card-title"><BellRing :size="19" /> Lịch thay thế phụ tùng</h2><span class="section-note">Tính từ lần lắp hoàn tất gần nhất theo thời gian và số km</span></div><span class="muted">{{ replacementReminders.length }} phụ tùng</span></header>
+      <div class="table-wrap">
+        <table v-if="replacementReminders.length" class="data-table replacement-table">
+          <thead><tr><th>Xe</th><th>Phụ tùng</th><th>Lắp gần nhất</th><th>Hạn thay dự kiến</th><th>Trạng thái</th><th>Phiếu sửa chữa</th></tr></thead>
+          <tbody><tr v-for="item in replacementReminders" :key="`${item.vehicleId}-${item.partId}`"><td><strong class="mono">{{ item.licensePlate }}</strong><span class="cell-sub">ODO {{ item.currentOdometer !== undefined ? `${formatNumber(item.currentOdometer)} km` : 'chưa cập nhật' }}</span></td><td><NuxtLink class="cell-main link" :to="`/inventory/${item.partId}`">{{ item.partName }}</NuxtLink><span class="cell-sub mono">{{ item.partCode }}</span></td><td>{{ formatDate(item.installedAt) }}<span class="cell-sub">{{ item.installedOdometer !== undefined ? `${formatNumber(item.installedOdometer)} km` : 'Không có ODO' }}</span></td><td>{{ replacementDueText(item) }}</td><td><AppBadge :tone="item.isOverdue ? 'danger' : item.isDueSoon ? 'warning' : 'neutral'">{{ replacementStatusText(item) }}</AppBadge></td><td><NuxtLink class="link mono" :to="`/repair-orders/${item.lastRepairOrderId}`">Xem phiếu</NuxtLink></td></tr></tbody>
+        </table>
+        <AppEmpty v-else :icon="BellRing" title="Chưa có lịch thay phụ tùng" message="Lịch sẽ được tạo khi phụ tùng có chu kỳ thay được lắp và hoàn tất trên phiếu sửa chữa." />
+      </div>
     </section>
 
     <section class="card">
@@ -329,6 +357,7 @@ onMounted(load)
 .vehicle-card > div > strong { color: var(--navy-950); font-size: 17px; }
 .vehicle-card span, .vehicle-card small { margin-top: 2px; color: var(--muted); font-size: 11px; }
 .link { color: var(--blue); }
+.replacement-card { overflow: hidden; }.replacement-table { min-width: 900px; }
 @media (max-width: 900px) { .profile-grid, .vehicle-grid { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .detail-grid { grid-template-columns: 1fr; gap: 13px; }.loyalty-card { grid-template-columns: auto 1fr; padding: 18px; }.point-block { grid-column: 1 / -1; text-align: left; }.loyalty-card small { grid-column: 1 / -1; }.vehicle-grid { padding: 14px; }.vehicle-card { grid-template-columns: auto 1fr; }.vehicle-card > .btn,.vehicle-card > .icon-btn { grid-column: 1 / -1; width: 100%; } }
 </style>

@@ -27,7 +27,9 @@ const editing = ref<Part>()
 const selectedPart = ref<Part>()
 const form = reactive({
   code: '', barcode: '', name: '', partBrandId: '', partCategoryId: '', unit: '',
-  specifications: [] as SpecificationValue[], salePrice: 0, minQuantity: 0, location: '', notes: '', isActive: true
+  specifications: [] as SpecificationValue[], salePrice: 0, minQuantity: 0,
+  replacementIntervalKm: null as number | null, replacementIntervalMonths: null as number | null,
+  notes: '', isActive: true
 })
 const adjustment = reactive({ type: 'AdjustmentIncrease', quantity: 1, notes: '' })
 const brandOptions = computed(() => brands.value.filter(x => !x.isDeleted).map(x => ({ code: x.id, name: x.name })))
@@ -38,6 +40,11 @@ const unitOptions = [
   'Cái', 'Chiếc', 'Bộ', 'Cặp', 'Hộp', 'Chai', 'Bình', 'Tuýp',
   'Gói', 'Túi', 'Cuộn', 'Mét', 'Lít', 'Thanh', 'Tấm'
 ].map(name => ({ code: name, name }))
+const normalizeSpecificationValue = (dataType: string, value?: string) => {
+  if (dataType !== 'Boolean') return value || ''
+  return ['true', '1', 'yes', 'có'].includes((value || '').toLowerCase()) ? 'true' : 'false'
+}
+const setSpecificationValue = (index: number, value: string) => { specificationValue(index).value = value }
 
 const load = async (page = 1) => {
   loading.value = true
@@ -70,9 +77,14 @@ const openPart = (part?: Part) => {
   Object.assign(form, {
     code: part?.code || '', barcode: part?.barcode || '', name: part?.name || '',
     partBrandId: part?.partBrandId || '', partCategoryId: targetCategoryId,
-    specifications: definitions.map(definition => ({ code: definition.code, name: definition.name, unit: definition.unit, value: part?.specifications?.find(x => x.code === definition.code)?.value || '' })),
+    specifications: definitions.map(definition => ({
+      code: definition.code, name: definition.name, unit: definition.unit,
+      value: normalizeSpecificationValue(definition.dataType, part?.specifications?.find(x => x.code === definition.code)?.value)
+    })),
     unit: part?.unit || '', salePrice: part?.salePrice || 0, minQuantity: part?.minQuantity || 0,
-    location: part?.location || '', notes: part?.notes || '', isActive: part?.isActive ?? true
+    replacementIntervalKm: part?.replacementIntervalKm ?? null,
+    replacementIntervalMonths: part?.replacementIntervalMonths ?? null,
+    notes: part?.notes || '', isActive: part?.isActive ?? true
   })
   partModal.value = true
 }
@@ -81,7 +93,7 @@ const selectCategory = (id: string) => {
   const definitions = categories.value.find(x => x.id === id)?.specificationDefinitions || []
   form.specifications = definitions.map(definition => ({
     code: definition.code, name: definition.name, unit: definition.unit,
-    value: form.specifications.find(x => x.code === definition.code)?.value || ''
+    value: normalizeSpecificationValue(definition.dataType, form.specifications.find(x => x.code === definition.code)?.value)
   }))
 }
 const savePart = async () => {
@@ -181,11 +193,14 @@ onMounted(load)
           <div class="field"><label>Hãng phụ tùng</label><AppSearchSelect v-model="form.partBrandId" :options="brandOptions" :clearable="true" placeholder="Chọn hãng" search-placeholder="Tìm hãng..." /></div>
           <div class="field"><label>Đơn vị *</label><AppSearchSelect v-model="form.unit" :options="unitOptions" required :clearable="false" placeholder="Chọn đơn vị" search-placeholder="Tìm đơn vị..." /></div><div class="field"><label>Giá bán</label><AppNumberInput v-model="form.salePrice" class="input" min="0" /></div>
           <div class="field"><label>Số lượng cảnh báo (min)</label><AppNumberInput v-model="form.minQuantity" class="input" min="0" /></div>
+          <div class="field"><label>Thay sau số km</label><AppNumberInput v-model="form.replacementIntervalKm" class="input" min="1" placeholder="Ví dụ: 12000" /></div>
+          <div class="field"><label>Thay sau số tháng</label><AppNumberInput v-model="form.replacementIntervalMonths" class="input" min="1" placeholder="Ví dụ: 24" /></div>
+          <div class="info-note span-2">Có thể khai báo một hoặc cả hai chu kỳ. Hệ thống sẽ nhắc theo điều kiện đến trước kể từ lần lắp gần nhất.</div>
           <div class="field span-2"><label>Ghi chú</label><textarea v-model.trim="form.notes" class="textarea" /></div>
           <div class="info-note span-2">Giá nhập, số lượng nhập và nhà cung cấp không khai báo tại đây. Hãy lập “Phiếu nhập phụ tùng” trong mục Thu chi.</div>
         </template>
         <template v-else>
-          <div v-if="selectedSpecificationDefinitions.length" class="span-2 specification-fields"><div class="specification-intro"><strong>Thông số của danh mục {{ categories.find(x => x.id === form.partCategoryId)?.name }}</strong><span>Các thông số này hỗ trợ tìm nhanh phụ tùng.</span></div><div class="form-grid"><div v-for="(definition, index) in selectedSpecificationDefinitions" :key="definition.code" class="field"><label>{{ definition.name }}<span v-if="definition.unit"> ({{ definition.unit }})</span>{{ definition.isRequired ? ' *' : '' }}</label><input v-model.trim="specificationValue(index).value" class="input" :required="definition.isRequired" :placeholder="`Nhập ${definition.name.toLowerCase()}`" /></div></div></div>
+          <div v-if="selectedSpecificationDefinitions.length" class="span-2 specification-fields"><div class="specification-intro"><strong>Thông số của danh mục {{ categories.find(x => x.id === form.partCategoryId)?.name }}</strong><span>Các thông số này hỗ trợ tìm nhanh phụ tùng.</span></div><div class="form-grid"><div v-for="(definition, index) in selectedSpecificationDefinitions" :key="definition.code" class="field"><label>{{ definition.name }}<span v-if="definition.unit"> ({{ definition.unit }})</span>{{ definition.isRequired ? ' *' : '' }}</label><select v-if="definition.dataType === 'Selection'" v-model="specificationValue(index).value" class="select" :required="definition.isRequired"><option value="">Chọn {{ definition.name.toLowerCase() }}</option><option v-for="option in definition.options" :key="option" :value="option">{{ option }}</option></select><label v-else-if="definition.dataType === 'Boolean'" class="boolean-spec-input"><input type="checkbox" :checked="specificationValue(index).value === 'true'" @change="setSpecificationValue(index, ($event.target as HTMLInputElement).checked ? 'true' : 'false')" /><span>{{ specificationValue(index).value === 'true' ? 'Có' : 'Không' }}</span></label><input v-else-if="definition.dataType === 'Number'" type="number" step="any" class="input" :required="definition.isRequired" :value="specificationValue(index).value" :placeholder="`Nhập ${definition.name.toLowerCase()}`" @input="setSpecificationValue(index, ($event.target as HTMLInputElement).value)" /><input v-else v-model.trim="specificationValue(index).value" class="input" :required="definition.isRequired" :placeholder="`Nhập ${definition.name.toLowerCase()}`" /></div></div></div>
           <AppEmpty v-else class="span-2" title="Danh mục chưa có thông số" message="Có thể khai báo bộ thông số trong màn hình Danh mục hệ thống." />
         </template>
       </form>
@@ -213,6 +228,7 @@ onMounted(load)
 .filter-head { display: grid; grid-template-columns: minmax(250px, 1fr) 210px 230px auto; align-items: center; gap: 10px; }.filter-head > :last-child { text-align: right; }
 .info-note { padding: 12px 14px; border-radius: 10px; color: #805b09; background: var(--amber-soft); font-size: 12px; }
 .spec-summary { margin-top: 4px; color: #52687a; font-size: 10px; }.specification-fields { display: grid; gap: 9px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: #f9fbfc; }.specification-fields > strong { font-size: 12px; }
+.boolean-spec-input { display: flex; min-height: 40px; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: white; }
 .part-link,.part-link span { display: block; }.part-link:hover .cell-main { color: var(--blue); }
 .part-form-tabs { display: flex; gap: 5px; padding: 4px; border-radius: 11px; background: #eef2f5; }.part-form-tabs button { display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: 7px; min-height: 38px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-weight: 750; }.part-form-tabs button.active { color: var(--navy-950); background: white; box-shadow: 0 2px 7px rgb(10 31 51 / 8%); }.part-form-tabs span { display: grid; min-width: 20px; height: 20px; place-items: center; border-radius: 99px; color: var(--navy-900); background: var(--amber-soft); font-size: 9px; }.specification-intro strong,.specification-intro span { display: block; }.specification-intro span { margin-top: 3px; color: var(--muted); font-size: 10px; }
 @media (max-width: 900px) { .filter-head { grid-template-columns: 1fr; }.filter-head > :last-child { text-align: left; } }

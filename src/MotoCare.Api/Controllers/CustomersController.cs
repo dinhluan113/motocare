@@ -15,7 +15,8 @@ namespace MotoCare.Api.Controllers;
 public sealed class CustomersController(
     IMongoRepository<Customer> repository,
     MongoDbContext context,
-    SequenceService sequences) : ControllerBase
+    SequenceService sequences,
+    PartReplacementReminderService replacementReminders) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> GetPage(
@@ -134,6 +135,17 @@ public sealed class CustomersController(
             .Limit(100)
             .ToListAsync(cancellationToken);
         return Ok(ApiEnvelope.Ok(new { account, transactions }));
+    }
+
+    [HttpGet("{id}/part-replacement-reminders")]
+    public async Task<IActionResult> PartReplacementReminders(
+        string id,
+        CancellationToken cancellationToken)
+    {
+        return Ok(ApiEnvelope.Ok(await replacementReminders.GetAsync(
+            customerId: id,
+            alertsOnly: false,
+            cancellationToken: cancellationToken)));
     }
 
     private static Customer Map(UpsertCustomerRequest request)

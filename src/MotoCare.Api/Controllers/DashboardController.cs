@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 using MotoCare.Api.Domain;
 using MotoCare.Api.Infrastructure;
+using MotoCare.Api.Services;
 
 namespace MotoCare.Api.Controllers;
 
@@ -13,7 +14,8 @@ namespace MotoCare.Api.Controllers;
 [Authorize]
 public sealed class DashboardController(
     MongoDbContext context,
-    IConfiguration configuration) : ControllerBase
+    IConfiguration configuration,
+    PartReplacementReminderService replacementReminders) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
@@ -41,13 +43,17 @@ public sealed class DashboardController(
                 && !x.IsDeleted)
             .ToListAsync(cancellationToken);
         var oilChangeAlertsTask = OilChangeAlerts(cancellationToken);
+        var partReplacementAlertsTask = replacementReminders.GetAsync(
+            alertsOnly: true,
+            cancellationToken: cancellationToken);
         await Task.WhenAll(
             repairingTask,
             awaitingPartsTask,
             completedTask,
             overdueOrdersTask,
             todayInvoicesTask,
-            oilChangeAlertsTask);
+            oilChangeAlertsTask,
+            partReplacementAlertsTask);
 
         var todayInvoices = await todayInvoicesTask;
         var overdueOrders = await overdueOrdersTask;
@@ -69,6 +75,12 @@ public sealed class DashboardController(
             },
             maintenance = new
             {
+                partReplacement = new
+                {
+                    warningBeforeKm = configuration.GetValue("Maintenance:PartReplacementWarningBeforeKm", 500),
+                    warningBeforeDays = configuration.GetValue("Maintenance:PartReplacementWarningBeforeDays", 30),
+                    reminders = await partReplacementAlertsTask
+                },
                 oilChange = new
                 {
                     intervalKm = configuration.GetValue("Maintenance:OilChangeIntervalKm", 2_000),

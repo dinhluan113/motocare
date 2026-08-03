@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, CheckCircle2, Edit3, Eye
 import type { CashCategory, CashTransaction, PagedResult, Part, PurchaseExpenseItem, Supplier, WarehouseLocation } from '~/types/api'
 import { entityDetailRoute } from '~/utils/entityRoute'
 import { formatCurrency, formatDate } from '~/utils/format'
+import WarehouseLocationSinglePicker from '~/components/WarehouseLocationSinglePicker.vue'
 
 const api = useApi()
 const { mediaUrl, uploadImage, deleteImage } = useMedia()
@@ -73,22 +74,32 @@ const load = async (page = 1) => {
   }
   suppliers.value = supplierPage.items; parts.value = partPage.items; warehouseLocations.value = locationPage.items; cashCategories.value = categoryPage.items
 }
-const locationOptionsForPart = (partId: string) => {
+const purchaseLocationsForPart = (partId: string) => {
   const part = parts.value.find(x => x.id === partId)
   const ids = part?.warehouseLocationIds?.length
     ? part.warehouseLocationIds
     : part?.warehouseLocationId ? [part.warehouseLocationId] : []
   return ids.map(id => warehouseLocations.value.find(x => x.id === id))
     .filter((x): x is WarehouseLocation => !!x && x.isActive && !x.isDeleted)
-    .map(x => ({ code: x.id, name: `${x.code} · ${x.name}` }))
+}
+const purchaseLocationDetailsForPart = (partId: string) => {
+  const part = parts.value.find(x => x.id === partId)
+  if (!part) return {}
+  const stockAtLocation = (locationId: string) =>
+    part.warehouseStocks?.find(x => x.warehouseLocationId === locationId)?.quantityOnHand
+    ?? (part.warehouseLocationId === locationId && !part.warehouseStocks?.length ? part.quantityOnHand : 0)
+  return Object.fromEntries(purchaseLocationsForPart(partId).map(location => [
+    location.id,
+    `Tồn ${stockAtLocation(location.id)} ${part.unit}`
+  ]))
 }
 const selectPurchasePart = (line: PurchaseExpenseItem, partId: string) => {
   line.partId = partId
-  const options = locationOptionsForPart(partId)
+  const options = purchaseLocationsForPart(partId)
   const preferred = parts.value.find(x => x.id === partId)?.warehouseLocationId
-  line.warehouseLocationId = options.some(option => option.code === preferred)
+  line.warehouseLocationId = options.some(option => option.id === preferred)
     ? preferred!
-    : options[0]?.code || ''
+    : options[0]?.id || ''
 }
 const purchaseLocation = (line: PurchaseExpenseItem) => warehouseLocations.value
   .find(x => x.id === line.warehouseLocationId)
@@ -238,7 +249,7 @@ onMounted(load)
             <div class="line-head"><strong>Phụ tùng nhập</strong><button class="btn btn-secondary btn-sm" type="button" @click="addLine"><Plus :size="14" /> Thêm dòng</button></div>
             <div v-for="(line, index) in form.purchaseItems" :key="index" class="purchase-line">
               <div class="field"><label>Phụ tùng *</label><AppSearchSelect :model-value="line.partId" :options="partOptions" required :clearable="false" placeholder="Chọn phụ tùng" @update:model-value="selectPurchasePart(line, $event)" /></div>
-              <div class="field"><label>Ngăn nhập *</label><AppSearchSelect v-model="line.warehouseLocationId" :options="locationOptionsForPart(line.partId)" :disabled="!line.partId" required :clearable="false" placeholder="Chọn ngăn nhập" /></div>
+              <div class="field"><label>Ngăn nhập *</label><WarehouseLocationSinglePicker v-model="line.warehouseLocationId" :locations="purchaseLocationsForPart(line.partId)" :location-details="purchaseLocationDetailsForPart(line.partId)" :disabled="!line.partId" title="Chọn ngăn nhập" description="Sơ đồ chỉ hiển thị các ngăn đang gán cho phụ tùng đã chọn." placeholder="Chưa chọn ngăn nhập" action-label="Chọn trên sơ đồ" /></div>
               <div class="field"><label>Số lượng *</label><AppNumberInput v-model="line.quantity" class="input" min="0.01" step="0.01" required /></div>
               <div class="field"><label>Giá nhập *</label><AppNumberInput v-model="line.unitCost" class="input" min="0.01" required /></div>
               <div class="line-total"><span>Thành tiền</span><strong>{{ formatCurrency(line.quantity * line.unitCost) }}</strong></div>
@@ -314,7 +325,7 @@ onMounted(load)
 <style scoped>
 .cash-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }.cash-summary article { display: flex; align-items: center; gap: 13px; padding: 17px; border: 1px solid var(--line); border-radius: 13px; background: white; }.cash-summary span,.cash-summary strong { display: block; }.cash-summary span { color: var(--muted); font-size: 10px; }.cash-summary strong { color: var(--navy-950); font-size: 20px; }.income { color: var(--teal); }.expense { color: var(--red); }
 .finance-filters { display: grid; grid-template-columns: minmax(260px, 1.7fr) repeat(3, minmax(150px, 1fr)); align-items: end; gap: 10px; padding: 14px; }.filter-search { position: relative; }.filter-search svg { position: absolute; top: 50%; left: 12px; color: var(--muted); transform: translateY(-50%); }.filter-search .input { padding-left: 38px; }.filter-date { display: grid; gap: 4px; }.filter-date label { color: var(--muted); font-size: 10px; font-weight: 700; }.filter-actions { display: flex; align-items: center; gap: 7px; }
-.purchase-lines { display: grid; gap: 10px; }.line-head,.purchase-total { display: flex; align-items: center; justify-content: space-between; }.purchase-line { display: grid; grid-template-columns: minmax(210px, 2fr) 125px 95px 135px 130px 38px; align-items: end; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: #f9fbfc; }.line-location { display: grid; min-height: 40px; grid-template-columns: 16px 1fr; align-content: center; column-gap: 5px; padding: 5px 8px; border-radius: 8px; color: #805b09; background: var(--amber-soft); }.line-location svg { grid-row: 1 / 3; align-self: center; }.line-location span { color: #876e35; font-size: 9px; }.line-location strong { font-size: 10px; }.line-location.missing { color: var(--red); background: #fff0ef; }.line-total { padding-bottom: 8px; text-align: right; }.line-total span,.line-total strong { display: block; }.line-total span { color: var(--muted); font-size: 10px; }.purchase-total { padding: 14px 4px 2px; }.purchase-total strong { color: var(--navy-950); font-size: 22px; }.profit-indicator { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: var(--teal); font-size: 11px; }.profit-indicator.warning,.low-profit-text { color: var(--red); }.low-profit-text { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 10px; }
+.purchase-lines { display: grid; gap: 10px; }.line-head,.purchase-total { display: flex; align-items: center; justify-content: space-between; }.purchase-line { display: grid; grid-template-columns: minmax(210px, 1.6fr) minmax(240px, 1.7fr) 95px 135px 130px 38px; align-items: end; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: #f9fbfc; }.line-location { display: grid; min-height: 40px; grid-template-columns: 16px 1fr; align-content: center; column-gap: 5px; padding: 5px 8px; border-radius: 8px; color: #805b09; background: var(--amber-soft); }.line-location svg { grid-row: 1 / 3; align-self: center; }.line-location span { color: #876e35; font-size: 9px; }.line-location strong { font-size: 10px; }.line-location.missing { color: var(--red); background: #fff0ef; }.line-total { padding-bottom: 8px; text-align: right; }.line-total span,.line-total strong { display: block; }.line-total span { color: var(--muted); font-size: 10px; }.purchase-total { padding: 14px 4px 2px; }.purchase-total strong { color: var(--navy-950); font-size: 22px; }.profit-indicator { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: var(--teal); font-size: 11px; }.profit-indicator.warning,.low-profit-text { color: var(--red); }.low-profit-text { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 10px; }
 .radio-group { display: flex; min-height: 42px; align-items: center; gap: 8px; flex-wrap: wrap; }.radio-group label { display: flex; min-height: 38px; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--navy-900); background: white; cursor: pointer; }.radio-group label:has(input:checked) { border-color: var(--navy-900); background: #f0f5f8; }.radio-group input { accent-color: var(--navy-900); }.category-picker { display: grid; grid-template-columns: 1fr 40px; gap: 7px; }.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }.transfer-proof { display: grid; gap: 9px; }.upload-proof { display: grid; min-height: 135px; place-items: center; gap: 5px; padding: 18px; border: 1px dashed #9eb2c2; border-radius: 12px; color: var(--navy-800); background: #f7fafc; }.upload-proof span { color: var(--muted); font-size: 10px; }.replace-proof { width: max-content; }.table-proof { margin-top: 5px; }.category-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }.category-head p { margin: 0; }.row-actions { justify-content: flex-end; }.danger-button { color: var(--red); }
 .transaction-tabs { display: flex; gap: 5px; padding: 4px; border-radius: 11px; background: #eef2f5; }.transaction-tabs button { display: inline-flex; flex: 1; min-height: 38px; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-weight: 750; }.transaction-tabs button.active { color: var(--navy-950); background: white; box-shadow: 0 2px 7px rgb(10 31 51 / 8%); }.transaction-tabs span { display: grid; min-width: 20px; height: 20px; place-items: center; border-radius: 99px; color: var(--navy-900); background: var(--amber-soft); font-size: 9px; }
 .transaction-detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }.transaction-detail-grid > div { min-height: 66px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #f9fbfc; }.transaction-detail-grid span,.transaction-detail-grid strong { display: block; }.transaction-detail-grid span { margin-bottom: 5px; color: var(--muted); font-size: 10px; }.transaction-detail-grid strong { color: var(--navy-950); font-size: 12px; }.transaction-detail-grid .detail-wide { grid-column: 1 / -1; }.detail-section { margin-top: 18px; }.detail-section h3 { margin: 0 0 9px; color: var(--navy-950); font-size: 13px; }.detail-total { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; padding: 15px 17px; border-radius: 12px; background: var(--amber-soft); }.detail-total strong { font-size: 22px; }

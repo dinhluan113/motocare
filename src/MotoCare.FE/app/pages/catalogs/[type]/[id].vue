@@ -41,6 +41,8 @@ const catalogType = computed<CatalogType | undefined>(() => {
 })
 const catalogId = computed(() => String(route.params.id || ''))
 const config = computed(() => catalogType.value ? catalogTypes[catalogType.value] : undefined)
+const catalogListRoute = computed(() =>
+  catalogType.value ? `/catalogs/${catalogType.value}` : '/catalogs/vehicle-brands')
 const vehicleBrandItem = computed(() => catalogType.value === 'vehicle-brands' ? entity.value as VehicleBrand | undefined : undefined)
 const vehicleModelItem = computed(() => catalogType.value === 'vehicle-models' ? entity.value as VehicleModel | undefined : undefined)
 const partBrandItem = computed(() => catalogType.value === 'part-brands' ? entity.value as PartBrandDetail | undefined : undefined)
@@ -97,7 +99,7 @@ watch([catalogType, catalogId], () => load())
 
 <template>
   <div class="page">
-    <NuxtLink class="back-link" :to="isEmployee ? '/inventory' : '/catalogs'"><ArrowLeft :size="16" /> {{ isEmployee ? 'Kho phụ tùng' : 'Danh mục hệ thống' }}</NuxtLink>
+    <NuxtLink class="back-link" :to="isEmployee ? '/inventory' : catalogListRoute"><ArrowLeft :size="16" /> {{ isEmployee ? 'Kho phụ tùng' : 'Danh mục hệ thống' }}</NuxtLink>
 
     <template v-if="entity && config">
       <div class="page-header">

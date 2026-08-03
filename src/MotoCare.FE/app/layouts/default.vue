@@ -1,20 +1,24 @@
 <script setup lang="ts">
 import {
+  Bike,
   Bell,
+  Boxes,
   ChartNoAxesCombined,
   ChevronDown,
   CircleUserRound,
   ClipboardList,
   TicketPercent,
-  Database,
+  Factory,
   FileText,
   LayoutDashboard,
+  ListTree,
   LogOut,
   Menu,
   Package,
   ReceiptText,
   Search,
   Settings,
+  Sparkles,
   ScrollText,
   ShieldCheck,
   Truck,
@@ -51,7 +55,11 @@ const allNavigation = [
   { label: 'Loyalty', to: '/loyalty', icon: Star },
   { label: 'Coupon', to: '/coupons', icon: TicketPercent, adminOnly: true },
   { label: 'Báo cáo', to: '/reports', icon: ChartNoAxesCombined },
-  { label: 'Danh mục', to: '/catalogs', icon: Database },
+  { label: 'Hãng xe', to: '/catalogs/vehicle-brands', icon: Factory, group: 'catalogs' },
+  { label: 'Dòng xe', to: '/catalogs/vehicle-models', icon: Bike, group: 'catalogs' },
+  { label: 'Hãng phụ tùng', to: '/catalogs/part-brands', icon: Boxes, group: 'catalogs' },
+  { label: 'Danh mục phụ tùng', to: '/catalogs/part-categories', icon: ListTree, group: 'catalogs' },
+  { label: 'Dịch vụ', to: '/catalogs/service-categories', icon: Sparkles, group: 'catalogs' },
   { label: 'Lịch sử thao tác', to: '/audit-logs', icon: ScrollText },
   { label: 'Tài khoản & quyền', to: '/users', icon: ShieldCheck, adminOnly: true },
   { label: 'Cài đặt', to: '/settings', icon: Settings, adminOnly: true, demoDataOnly: true }
@@ -65,6 +73,10 @@ const navigation = computed(() => {
     && (!(item as any).adminOnly || isAdmin)
     && (!(item as any).demoDataOnly || demoDataEnabled.value))
 })
+const groupedNavigation = computed(() => ({
+  primary: navigation.value.filter(item => (item as any).group !== 'catalogs'),
+  catalogs: navigation.value.filter(item => (item as any).group === 'catalogs')
+}))
 
 onMounted(async () => {
   if (!auth.hasAnyRole('Admin', 'Administrator')) return
@@ -131,7 +143,7 @@ watch(() => route.fullPath, () => {
 
       <nav aria-label="Điều hướng chính">
         <NuxtLink
-          v-for="item in navigation"
+          v-for="item in groupedNavigation.primary"
           :key="item.to"
           :to="item.to"
           class="nav-link"
@@ -140,6 +152,19 @@ watch(() => route.fullPath, () => {
           <component :is="item.icon" :size="18" />
           <span>{{ item.label }}</span>
         </NuxtLink>
+        <div v-if="groupedNavigation.catalogs.length" class="nav-group">
+          <p class="nav-group-title">Danh mục hệ thống</p>
+          <NuxtLink
+            v-for="item in groupedNavigation.catalogs"
+            :key="item.to"
+            :to="item.to"
+            class="nav-link"
+            :class="{ active: active(item.to) }"
+          >
+            <component :is="item.icon" :size="18" />
+            <span>{{ item.label }}</span>
+          </NuxtLink>
+        </div>
       </nav>
 
       <div class="sidebar-footer">
@@ -377,6 +402,23 @@ nav {
 
 .nav-link.active svg {
   color: var(--amber);
+}
+
+.nav-group {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgb(255 255 255 / 9%);
+}
+
+.nav-group-title {
+  margin: 0 12px 3px;
+  color: #7895ad;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .sidebar-footer {

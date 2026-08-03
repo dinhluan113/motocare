@@ -389,13 +389,17 @@ watch([catalogType, catalogId], () => load())
 .detail-grid span,.detail-grid strong { display: block; }.detail-grid span { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; }.detail-grid strong { margin-top: 4px; color: var(--navy-950); overflow-wrap: anywhere; }.span-2 { grid-column: span 2; }
 .spec-editor { display: grid; gap: 9px; }
 .spec-head { display: flex; align-items: center; justify-content: space-between; }
-.spec-head label,.spec-head small { display: block; }
-.spec-head small { margin-top: 3px; color: var(--muted); }
+.spec-head > div { display: grid; gap: 3px; min-width: 0; }
+.spec-head label,.spec-head small { display: block; margin: 0; }
+.spec-head small { color: var(--muted); line-height: 1.35; }
 .spec-item { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #f9fbfc; }
 .spec-row { display: grid; grid-template-columns: 120px minmax(160px, 1fr) 150px 100px 90px 38px; align-items: center; gap: 8px; }
 .required-check { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .selection-options { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 8px; }
 .selection-options small { grid-column: 2; color: var(--muted); }
-@media (max-width: 720px) { .spec-row { grid-template-columns: 1fr; } }
+@media (max-width: 720px) {
+  .spec-head { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .spec-row { grid-template-columns: 1fr; }
+}
 @media (max-width: 640px) { .detail-grid { grid-template-columns: 1fr; gap: 14px; }.span-2 { grid-column: auto; }.page-actions { width: 100%; justify-content: flex-start; } }
 </style>

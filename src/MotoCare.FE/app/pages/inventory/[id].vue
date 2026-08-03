@@ -61,8 +61,11 @@ const transferSourceOptions = computed(() => warehouseStockRows.value
 const transferDestinationOptions = computed(() => warehouseLocations.value
   .filter(x => !x.isDeleted && x.isActive && x.id !== transfer.fromWarehouseLocationId)
   .map(x => ({ code: x.id, name: `${x.code} · ${x.name}` })))
-const transferSourceLocations = computed(() => warehouseLocations.value.filter(location =>
-  transferSourceOptions.value.some(option => option.code === location.id)))
+const transferSourceLocations = computed(() => warehouseLocations.value
+  .filter(location => !location.isDeleted))
+const transferSourceDisabledLocationIds = computed(() => transferSourceLocations.value
+  .filter(location => stockAtLocation(location.id) <= 0)
+  .map(location => location.id))
 const transferDestinationLocations = computed(() => warehouseLocations.value.filter(location =>
   transferDestinationOptions.value.some(option => option.code === location.id)))
 const transferSourceDetails = computed(() => Object.fromEntries(transferSourceLocations.value.map(location => [
@@ -397,7 +400,7 @@ onMounted(load)
     <AppModal :open="transferModal" :title="`Chuyển vị trí: ${part?.name || ''}`" width="680px" @close="transferModal = false">
       <form id="part-transfer-form" class="form-grid" @submit.prevent="saveTransfer">
         <div class="transfer-note span-2"><ArrowRightLeft :size="18" /><div><strong>Lệnh chuyển phụ tùng</strong><span>Chỉ thay đổi số lượng giữa các ngăn; tổng tồn kho của phụ tùng không đổi.</span></div></div>
-        <div class="field"><label>Ngăn nguồn *</label><WarehouseLocationSinglePicker :model-value="transfer.fromWarehouseLocationId" :locations="transferSourceLocations" :location-details="transferSourceDetails" title="Chọn ngăn nguồn" description="Sơ đồ chỉ hiển thị các ngăn đang có phụ tùng này. Số tồn hiện tại được ghi trên từng ngăn." placeholder="Chưa chọn ngăn nguồn" action-label="Chọn trên sơ đồ" @update:model-value="changeTransferSource" /><small class="muted">Khả dụng: {{ formatNumber(transferSourceQuantity) }} {{ part?.unit }}</small></div>
+        <div class="field"><label>Ngăn nguồn *</label><WarehouseLocationSinglePicker :model-value="transfer.fromWarehouseLocationId" :locations="transferSourceLocations" :location-details="transferSourceDetails" :disabled-location-ids="transferSourceDisabledLocationIds" title="Chọn ngăn nguồn" description="Sơ đồ hiển thị toàn bộ ngăn kho. Các ngăn không có tồn của phụ tùng này sẽ bị khóa." placeholder="Chưa chọn ngăn nguồn" action-label="Chọn trên sơ đồ" @update:model-value="changeTransferSource" /><small class="muted">Khả dụng: {{ formatNumber(transferSourceQuantity) }} {{ part?.unit }}</small></div>
         <div class="field"><label>Ngăn đích *</label><WarehouseLocationSinglePicker v-model="transfer.toWarehouseLocationId" :locations="transferDestinationLocations" title="Chọn ngăn đích" description="Chọn ngăn sẽ nhận phụ tùng. Ngăn nguồn đã được loại khỏi sơ đồ." placeholder="Chưa chọn ngăn đích" action-label="Chọn trên sơ đồ" /></div>
         <div class="field"><label>Số lượng chuyển *</label><AppNumberInput v-model="transfer.quantity" class="input" min="0.01" :max="transferSourceQuantity" step="0.01" required /></div>
         <div class="field transfer-preview"><span>Sau khi chuyển</span><strong>{{ formatNumber(transferSourceQuantity - Number(transfer.quantity || 0)) }} {{ part?.unit }}</strong><small>còn lại tại ngăn nguồn</small></div>

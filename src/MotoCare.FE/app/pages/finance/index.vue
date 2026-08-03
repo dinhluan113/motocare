@@ -75,12 +75,18 @@ const load = async (page = 1) => {
   suppliers.value = supplierPage.items; parts.value = partPage.items; warehouseLocations.value = locationPage.items; cashCategories.value = categoryPage.items
 }
 const purchaseLocationsForPart = (partId: string) => {
+  return warehouseLocations.value.filter(x => x.isActive && !x.isDeleted)
+}
+const preferredLocationIdForPart = (partId: string) => {
   const part = parts.value.find(x => x.id === partId)
-  const ids = part?.warehouseLocationIds?.length
-    ? part.warehouseLocationIds
-    : part?.warehouseLocationId ? [part.warehouseLocationId] : []
-  return ids.map(id => warehouseLocations.value.find(x => x.id === id))
-    .filter((x): x is WarehouseLocation => !!x && x.isActive && !x.isDeleted)
+  if (!part) return ''
+  const existingIds = [
+    ...(part.warehouseLocationIds || []),
+    ...(part.warehouseLocationId ? [part.warehouseLocationId] : []),
+    ...((part.warehouseStocks || []).filter(x => x.quantityOnHand > 0).map(x => x.warehouseLocationId))
+  ]
+  const active = purchaseLocationsForPart(partId)
+  return active.find(location => existingIds.includes(location.id))?.id || active[0]?.id || ''
 }
 const purchaseLocationDetailsForPart = (partId: string) => {
   const part = parts.value.find(x => x.id === partId)
@@ -95,11 +101,7 @@ const purchaseLocationDetailsForPart = (partId: string) => {
 }
 const selectPurchasePart = (line: PurchaseExpenseItem, partId: string) => {
   line.partId = partId
-  const options = purchaseLocationsForPart(partId)
-  const preferred = parts.value.find(x => x.id === partId)?.warehouseLocationId
-  line.warehouseLocationId = options.some(option => option.id === preferred)
-    ? preferred!
-    : options[0]?.id || ''
+  line.warehouseLocationId = preferredLocationIdForPart(partId)
 }
 const purchaseLocation = (line: PurchaseExpenseItem) => warehouseLocations.value
   .find(x => x.id === line.warehouseLocationId)
@@ -249,7 +251,7 @@ onMounted(load)
             <div class="line-head"><strong>Phụ tùng nhập</strong><button class="btn btn-secondary btn-sm" type="button" @click="addLine"><Plus :size="14" /> Thêm dòng</button></div>
             <div v-for="(line, index) in form.purchaseItems" :key="index" class="purchase-line">
               <div class="field"><label>Phụ tùng *</label><AppSearchSelect :model-value="line.partId" :options="partOptions" required :clearable="false" placeholder="Chọn phụ tùng" @update:model-value="selectPurchasePart(line, $event)" /></div>
-              <div class="field"><label>Ngăn nhập *</label><WarehouseLocationSinglePicker v-model="line.warehouseLocationId" :locations="purchaseLocationsForPart(line.partId)" :location-details="purchaseLocationDetailsForPart(line.partId)" :disabled="!line.partId" title="Chọn ngăn nhập" description="Sơ đồ chỉ hiển thị các ngăn đang gán cho phụ tùng đã chọn." placeholder="Chưa chọn ngăn nhập" action-label="Chọn trên sơ đồ" /></div>
+              <div class="field"><label>Ngăn nhập *</label><WarehouseLocationSinglePicker v-model="line.warehouseLocationId" :locations="purchaseLocationsForPart(line.partId)" :location-details="purchaseLocationDetailsForPart(line.partId)" :disabled="!line.partId" title="Chọn ngăn nhập" description="Có thể chọn mọi ngăn trong sơ đồ kho. Ngăn đã có tồn sẽ cộng thêm số lượng, ngăn chưa có tồn sẽ được tạo mới." placeholder="Chưa chọn ngăn nhập" action-label="Chọn trên sơ đồ" :show-leading-icon="false" action-outside /></div>
               <div class="field"><label>Số lượng *</label><AppNumberInput v-model="line.quantity" class="input" min="0.01" step="0.01" required /></div>
               <div class="field"><label>Giá nhập *</label><AppNumberInput v-model="line.unitCost" class="input" min="0.01" required /></div>
               <div class="line-total"><span>Thành tiền</span><strong>{{ formatCurrency(line.quantity * line.unitCost) }}</strong></div>

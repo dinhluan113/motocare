@@ -44,18 +44,22 @@ const load = async () => {
       api.request<Customer>(`/customers/${currentVehicle.customerId}`, {
         query: { includeDeleted: true }
       }),
-      api.request<VehicleModel>(`/vehicle-models/${currentVehicle.vehicleModelId}`, {
-        query: { includeDeleted: true }
-      }),
+      currentVehicle.vehicleModelId
+        ? api.request<VehicleModel>(`/vehicle-models/${currentVehicle.vehicleModelId}`, {
+            query: { includeDeleted: true }
+          })
+        : Promise.resolve(undefined),
       loadRepairOrders(currentVehicle.id)
     ])
 
     customer.value = currentCustomer
     model.value = currentModel
     repairOrders.value = currentOrders
-    brand.value = await api.request<VehicleBrand>(`/vehicle-brands/${currentModel.brandId}`, {
-      query: { includeDeleted: true }
-    })
+    brand.value = currentModel
+      ? await api.request<VehicleBrand>(`/vehicle-brands/${currentModel.brandId}`, {
+          query: { includeDeleted: true }
+        })
+      : undefined
   } finally {
     loading.value = false
   }

@@ -4,8 +4,8 @@ using MotoCare.Api.Domain;
 namespace MotoCare.Api.Contracts;
 
 public sealed record CreateRepairOrderRequest(
-    [Required] string CustomerId,
-    [Required] string VehicleId,
+    string? CustomerId,
+    string? VehicleId,
     DateTime? ExpectedDeliveryAt,
     [Range(0, int.MaxValue)] int? OdometerIn,
     [MaxLength(50)] string? FuelLevel,
@@ -15,7 +15,8 @@ public sealed record CreateRepairOrderRequest(
     [MaxLength(4_000)] string? InternalNotes,
     RepairPriority Priority = RepairPriority.Normal,
     string? ServiceAdvisorId = null,
-    IReadOnlyList<string>? VehicleConditionImages = null);
+    IReadOnlyList<string>? VehicleConditionImages = null,
+    [MaxLength(30)] string? LicensePlate = null);
 
 public sealed record UpdateVehicleConditionImagesRequest(
     IReadOnlyList<string> Images);

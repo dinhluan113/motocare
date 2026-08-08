@@ -8,15 +8,19 @@ const { uploadImage, deleteImage } = useMedia()
 const auth = useAuth()
 const toast = useToast()
 const isEmployee = computed(() => auth.hasAnyRole('Employee'))
-const customers = ref<Customer[]>([])
-const vehicles = ref<Vehicle[]>([])
 const employees = ref<Employee[]>([])
+const matchedCustomer = ref<Customer>()
+const matchedVehicle = ref<Vehicle>()
+const lookingUpPlate = ref(false)
 const saving = ref(false)
 const conditionImageInput = ref<HTMLInputElement>()
 const maxConditionImages = 10
+let plateLookupTimer: ReturnType<typeof setTimeout> | undefined
+let plateLookupVersion = 0
 const form = reactive({
-  customerId: String(route.query.customerId || ''),
-  vehicleId: String(route.query.vehicleId || ''),
+  customerId: '',
+  vehicleId: '',
+  licensePlate: '',
   expectedDeliveryAt: '',
   odometerIn: 0,
   fuelLevel: '',
@@ -28,44 +32,56 @@ const form = reactive({
   priority: 'Normal',
   serviceAdvisorId: ''
 })
-const customerOptions = computed(() => customers.value.map(item => ({
-  code: item.id,
-  name: `${item.fullName} · ${item.phone}`
-})))
-const vehicleOptions = computed(() => vehicles.value.map(item => ({
-  code: item.id,
-  name: item.licensePlate
-})))
 const employeeOptions = computed(() => employees.value.map(item => ({
   code: item.id,
   name: `${item.fullName} · ${item.position}`
 })))
 
 const loadReferences = async () => {
-  const [c, e] = await Promise.all([
-    api.request<PagedResult<Customer>>('/customers?pageSize=200'),
-    isEmployee.value
-      ? Promise.resolve({ items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 } as PagedResult<Employee>)
-      : api.request<PagedResult<Employee>>('/employees?pageSize=200')
-  ])
-  customers.value = c.items
-  employees.value = e.items.filter(x => x.status === 'Active')
-  if (form.customerId) await loadVehicles()
+  const employeePage = isEmployee.value
+    ? { items: [], total: 0, page: 1, pageSize: 200, totalPages: 0 } as PagedResult<Employee>
+    : await api.request<PagedResult<Employee>>('/employees?pageSize=200')
+  employees.value = employeePage.items.filter(x => x.status === 'Active')
+
+  const requestedVehicleId = String(route.query.vehicleId || '')
+  if (requestedVehicleId) {
+    const vehicle = await api.request<Vehicle>(`/vehicles/${requestedVehicleId}`, {
+      query: { includeDeleted: false }
+    })
+    form.licensePlate = vehicle.licensePlate
+  }
 }
 
-const loadVehicles = async () => {
+const lookupLicensePlate = async (licensePlate: string, version: number) => {
+  if (!licensePlate.trim()) return
+  lookingUpPlate.value = true
+  try {
+    const result = await api.request<{
+      found: boolean
+      vehicle?: Vehicle
+      customer?: Customer
+    }>('/vehicles/lookup-by-license-plate', { query: { licensePlate } })
+    if (version !== plateLookupVersion) return
+    matchedVehicle.value = result.found ? result.vehicle : undefined
+    matchedCustomer.value = result.found ? result.customer : undefined
+    form.vehicleId = matchedVehicle.value?.id || ''
+    form.customerId = matchedCustomer.value?.id || ''
+    form.odometerIn = matchedVehicle.value?.odometer || 0
+  } finally {
+    if (version === plateLookupVersion) lookingUpPlate.value = false
+  }
+}
+
+watch(() => form.licensePlate, (licensePlate) => {
+  if (plateLookupTimer) clearTimeout(plateLookupTimer)
+  const version = ++plateLookupVersion
+  matchedVehicle.value = undefined
+  matchedCustomer.value = undefined
   form.vehicleId = ''
+  form.customerId = ''
   form.odometerIn = 0
-  const page = await api.request<PagedResult<Vehicle>>('/vehicles', { query: { customerId: form.customerId, pageSize: 100 } })
-  vehicles.value = page.items
-  const requested = String(route.query.vehicleId || '')
-  if (requested && page.items.some(x => x.id === requested)) form.vehicleId = requested
-}
-
-watch(() => form.customerId, loadVehicles)
-watch(() => form.vehicleId, (vehicleId) => {
-  const vehicle = vehicles.value.find(x => x.id === vehicleId)
-  form.odometerIn = vehicle?.odometer || 0
+  lookingUpPlate.value = !!licensePlate.trim()
+  plateLookupTimer = setTimeout(() => lookupLicensePlate(licensePlate, version), 350)
 })
 
 const submit = async () => {
@@ -115,6 +131,9 @@ const removeConditionImage = async (index: number) => {
 }
 
 onMounted(loadReferences)
+onBeforeUnmount(() => {
+  if (plateLookupTimer) clearTimeout(plateLookupTimer)
+})
 </script>
 
 <template>
@@ -127,8 +146,37 @@ onMounted(loadReferences)
       <section class="card">
         <header class="card-header"><h2 class="card-title">Khách hàng & phương tiện</h2><span class="step-number">01</span></header>
         <div class="card-body form-grid">
-          <div class="field"><label>Khách hàng *</label><AppSearchSelect v-model="form.customerId" :options="customerOptions" placeholder="Chọn khách hàng" search-placeholder="Tìm tên hoặc số điện thoại..." required :clearable="false" /></div>
-          <div class="field"><label>Xe tiếp nhận *</label><AppSearchSelect v-model="form.vehicleId" :options="vehicleOptions" placeholder="Chọn biển số" search-placeholder="Tìm biển số..." required :clearable="false" :disabled="!form.customerId" /><small v-if="form.customerId && !vehicles.length" class="form-hint">Khách chưa có xe. Thêm xe trong hồ sơ khách hàng.</small></div>
+          <div class="field span-2">
+            <label>Biển số xe *</label>
+            <input
+              v-model.trim="form.licensePlate"
+              class="input plate-input"
+              required
+              maxlength="30"
+              autocomplete="off"
+              placeholder="Ví dụ: 59X1-123.45"
+              @blur="form.licensePlate = form.licensePlate.toUpperCase()"
+            />
+            <small class="form-hint">Nhập biển số để tìm xe và khách hàng đã có trong hệ thống.</small>
+          </div>
+          <div class="field span-2 customer-match">
+            <template v-if="lookingUpPlate">
+              <strong>Đang tra cứu biển số...</strong>
+              <small>Hệ thống đang kiểm tra hồ sơ xe.</small>
+            </template>
+            <template v-else-if="matchedCustomer && matchedVehicle">
+              <strong>Đã tìm thấy: {{ matchedCustomer.fullName }}</strong>
+              <small>{{ matchedCustomer.phone || 'Chưa có số điện thoại' }} · {{ matchedVehicle.licensePlate }}</small>
+            </template>
+            <template v-else-if="form.licensePlate">
+              <strong>Khách hàng mới / không cung cấp thông tin</strong>
+              <small>Khi tạo phiếu, hệ thống sẽ tự tạo hồ sơ khách lẻ và xe theo biển số này.</small>
+            </template>
+            <template v-else>
+              <strong>Thông tin khách hàng sẽ được tự động điền</strong>
+              <small>Nếu biển số chưa tồn tại, bạn vẫn có thể tạo phiếu chỉ với biển số.</small>
+            </template>
+          </div>
           <div class="field"><label>ODO khi nhận (km)</label><AppNumberInput v-model="form.odometerIn" class="input" min="0" /></div>
           <div class="field"><label>Mức nhiên liệu</label><select v-model="form.fuelLevel" class="select"><option value="">Không ghi nhận</option><option>0%</option><option>25%</option><option>50%</option><option>75%</option><option>100%</option></select></div>
         </div>
@@ -165,7 +213,12 @@ onMounted(loadReferences)
 .narrow-page { max-width: 980px; margin: 0 auto; }
 .back-link { display: inline-flex; width: max-content; align-items: center; gap: 7px; color: var(--muted); font-weight: 700; }
 .step-number { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; color: var(--navy-900); background: var(--amber-soft); font-weight: 800; }
-.form-hint { color: var(--red); }
+.form-hint { color: var(--muted); }
+.plate-input { text-transform: uppercase; }
+.customer-match { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #f7fafc; }
+.customer-match strong,.customer-match small { display: block; }
+.customer-match strong { color: var(--navy-900); }
+.customer-match small { margin-top: 4px; color: var(--muted); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .condition-images-field { display: grid; gap: 10px; }
 .upload-condition-images { display: flex; min-height: 82px; align-items: center; justify-content: center; gap: 8px; border: 1px dashed #9eb2c2; border-radius: 12px; color: var(--navy-800); background: #f7fafc; }

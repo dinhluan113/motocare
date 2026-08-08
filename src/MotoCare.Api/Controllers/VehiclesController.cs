@@ -15,6 +15,38 @@ public sealed class VehiclesController(
     IMongoRepository<Vehicle> repository,
     MongoDbContext context) : ControllerBase
 {
+    [HttpGet("lookup-by-license-plate")]
+    public async Task<IActionResult> LookupByLicensePlate(
+        [FromQuery] string licensePlate,
+        CancellationToken cancellationToken)
+    {
+        var normalizedPlate = Normalize.LicensePlate(licensePlate);
+        if (string.IsNullOrEmpty(normalizedPlate))
+        {
+            return Ok(ApiEnvelope.Ok(new
+            {
+                found = false,
+                vehicle = (Vehicle?)null,
+                customer = (Customer?)null
+            }));
+        }
+
+        var vehicle = await context.Collection<Vehicle>()
+            .Find(x => x.NormalizedLicensePlate == normalizedPlate && !x.IsDeleted && x.IsActive)
+            .FirstOrDefaultAsync(cancellationToken);
+        var customer = vehicle is null
+            ? null
+            : await context.Collection<Customer>()
+                .Find(x => x.Id == vehicle.CustomerId && !x.IsDeleted && x.IsActive)
+                .FirstOrDefaultAsync(cancellationToken);
+        return Ok(ApiEnvelope.Ok(new
+        {
+            found = vehicle is not null && customer is not null,
+            vehicle,
+            customer
+        }));
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetPage(
         [FromQuery] string? customerId,

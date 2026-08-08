@@ -36,20 +36,8 @@ public sealed class RepairOrderService(
         string userId,
         CancellationToken cancellationToken = default)
     {
-        var customer = await context.Collection<Customer>()
-            .Find(x => x.Id == request.CustomerId && !x.IsDeleted && x.IsActive)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new InvalidOperationException("Khách hàng không tồn tại hoặc đã ngừng hoạt động.");
-        var vehicle = await context.Collection<Vehicle>()
-            .Find(x => x.Id == request.VehicleId && !x.IsDeleted && x.IsActive)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new InvalidOperationException("Xe không tồn tại hoặc đã ngừng hoạt động.");
-        if (vehicle.CustomerId != customer.Id)
-        {
-            throw new InvalidOperationException("Xe không thuộc khách hàng đã chọn.");
-        }
-
         var conditionImages = ValidateConditionImages(request.VehicleConditionImages);
+        var (customer, vehicle, createdReception) = await ResolveReceptionAsync(request, cancellationToken);
         var order = new RepairOrder
         {
             Code = await sequences.NextAsync("repair-order", "RO", cancellationToken),
@@ -76,7 +64,23 @@ public sealed class RepairOrderService(
                 }
             ]
         };
-        await context.Collection<RepairOrder>().InsertOneAsync(order, cancellationToken: cancellationToken);
+        try
+        {
+            await context.Collection<RepairOrder>().InsertOneAsync(order, cancellationToken: cancellationToken);
+        }
+        catch
+        {
+            if (createdReception)
+            {
+                await context.Collection<Vehicle>().DeleteOneAsync(
+                    x => x.Id == vehicle.Id,
+                    CancellationToken.None);
+                await context.Collection<Customer>().DeleteOneAsync(
+                    x => x.Id == customer.Id,
+                    CancellationToken.None);
+            }
+            throw;
+        }
         if (request.OdometerIn.HasValue && vehicle.Odometer != request.OdometerIn)
         {
             vehicle.Odometer = request.OdometerIn;
@@ -87,6 +91,107 @@ public sealed class RepairOrderService(
                 cancellationToken: cancellationToken);
         }
         return order;
+    }
+
+    private async Task<(Customer Customer, Vehicle Vehicle, bool Created)> ResolveReceptionAsync(
+        CreateRepairOrderRequest request,
+        CancellationToken cancellationToken)
+    {
+        var normalizedPlate = Normalize.LicensePlate(request.LicensePlate ?? string.Empty);
+        if (!string.IsNullOrEmpty(normalizedPlate))
+        {
+            var existingVehicle = await context.Collection<Vehicle>()
+                .Find(x => x.NormalizedLicensePlate == normalizedPlate && !x.IsDeleted && x.IsActive)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (existingVehicle is not null)
+            {
+                var existingCustomer = await GetActiveCustomerAsync(
+                    existingVehicle.CustomerId,
+                    cancellationToken);
+                return (existingCustomer, existingVehicle, false);
+            }
+
+            return await CreateWalkInReceptionAsync(
+                request.LicensePlate!.Trim().ToUpperInvariant(),
+                normalizedPlate,
+                cancellationToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.CustomerId) || string.IsNullOrWhiteSpace(request.VehicleId))
+        {
+            throw new InvalidOperationException("Vui lòng nhập biển số xe.");
+        }
+
+        var customer = await GetActiveCustomerAsync(request.CustomerId, cancellationToken);
+        var vehicle = await context.Collection<Vehicle>()
+            .Find(x => x.Id == request.VehicleId && !x.IsDeleted && x.IsActive)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Xe không tồn tại hoặc đã ngừng hoạt động.");
+        if (vehicle.CustomerId != customer.Id)
+        {
+            throw new InvalidOperationException("Xe không thuộc khách hàng đã chọn.");
+        }
+        return (customer, vehicle, false);
+    }
+
+    private async Task<Customer> GetActiveCustomerAsync(
+        string customerId,
+        CancellationToken cancellationToken) =>
+        await context.Collection<Customer>()
+            .Find(x => x.Id == customerId && !x.IsDeleted && x.IsActive)
+            .FirstOrDefaultAsync(cancellationToken)
+        ?? throw new InvalidOperationException("Khách hàng không tồn tại hoặc đã ngừng hoạt động.");
+
+    private async Task<(Customer Customer, Vehicle Vehicle, bool Created)> CreateWalkInReceptionAsync(
+        string licensePlate,
+        string normalizedPlate,
+        CancellationToken cancellationToken)
+    {
+        var customer = new Customer
+        {
+            Code = await sequences.NextAsync("customer", "CUS", cancellationToken),
+            FullName = $"Khách lẻ - {licensePlate}",
+            Notes = "Hồ sơ được tạo tự động khi tiếp nhận xe chỉ có biển số."
+        };
+        await context.Collection<Customer>().InsertOneAsync(
+            customer,
+            cancellationToken: cancellationToken);
+
+        var vehicle = new Vehicle
+        {
+            CustomerId = customer.Id,
+            LicensePlate = licensePlate,
+            NormalizedLicensePlate = normalizedPlate,
+            Notes = "Xe được tạo tự động từ phiếu tiếp nhận."
+        };
+        try
+        {
+            await context.Collection<Vehicle>().InsertOneAsync(
+                vehicle,
+                cancellationToken: cancellationToken);
+            return (customer, vehicle, true);
+        }
+        catch (MongoWriteException exception) when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            await context.Collection<Customer>().DeleteOneAsync(
+                x => x.Id == customer.Id,
+                CancellationToken.None);
+            var existingVehicle = await context.Collection<Vehicle>()
+                .Find(x => x.NormalizedLicensePlate == normalizedPlate && !x.IsDeleted && x.IsActive)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (existingVehicle is null)
+            {
+                throw;
+            }
+            return (await GetActiveCustomerAsync(existingVehicle.CustomerId, cancellationToken), existingVehicle, false);
+        }
+        catch
+        {
+            await context.Collection<Customer>().DeleteOneAsync(
+                x => x.Id == customer.Id,
+                CancellationToken.None);
+            throw;
+        }
     }
 
     public async Task<RepairOrder> UpdateConditionImagesAsync(
